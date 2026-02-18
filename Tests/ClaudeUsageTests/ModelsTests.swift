@@ -1,0 +1,180 @@
+import Testing
+import Foundation
+@testable import ClaudeUsageKit
+
+// MARK: - Phase 2: UsageBucket
+
+@Suite("UsageBucket Decoding")
+struct UsageBucketTests {
+
+    // Cycle 2a: Decode with fractional seconds
+    @Test("Decodes utilization and ISO 8601 date with fractional seconds")
+    func decodeBucketWithFractionalSeconds() throws {
+        let json = """
+        {"utilization": 37.0, "resets_at": "2026-02-08T04:59:59.000000+00:00"}
+        """.data(using: .utf8)!
+
+        let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
+
+        #expect(bucket.utilization == 37.0)
+        #expect(bucket.resetsAt.timeIntervalSince1970 > 0)
+    }
+
+    // Cycle 2b: Decode without fractional seconds
+    @Test("Decodes ISO 8601 date without fractional seconds")
+    func decodeBucketWithoutFractionalSeconds() throws {
+        let json = """
+        {"utilization": 50.0, "resets_at": "2026-02-08T05:00:00+00:00"}
+        """.data(using: .utf8)!
+
+        let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
+
+        #expect(bucket.utilization == 50.0)
+        #expect(bucket.resetsAt.timeIntervalSince1970 > 0)
+    }
+
+    // Cycle 2c: Reject malformed date
+    @Test("Throws on malformed date string")
+    func decodeBucketWithBadDate() throws {
+        let json = """
+        {"utilization": 37.0, "resets_at": "not-a-date"}
+        """.data(using: .utf8)!
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(UsageBucket.self, from: json)
+        }
+    }
+}
+
+// MARK: - Phase 3: UsageResponse
+
+@Suite("UsageResponse Decoding")
+struct UsageResponseTests {
+
+    // Cycle 3a: Full response with all fields
+    @Test("Decodes complete API response with all fields")
+    func decodeFullUsageResponse() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.fullUsageJSON)
+
+        #expect(response.fiveHour.utilization == 37.0)
+        #expect(response.sevenDay.utilization == 26.0)
+        #expect(response.sevenDayOpus == nil)
+        #expect(response.sevenDaySonnet != nil)
+        #expect(response.sevenDaySonnet?.utilization == 1.0)
+        #expect(response.extraUsage != nil)
+        #expect(response.extraUsage?.isEnabled == false)
+    }
+
+    // Cycle 3b: Response with null/missing optional fields
+    @Test("Decodes response with null and missing optional fields")
+    func decodeResponseWithNullOptionals() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.minimalUsageJSON)
+
+        #expect(response.fiveHour.utilization == 50.0)
+        #expect(response.sevenDay.utilization == 10.0)
+        #expect(response.sevenDayOpus == nil)
+        #expect(response.sevenDaySonnet == nil)
+        #expect(response.extraUsage == nil)
+    }
+}
+
+// MARK: - Phase 4: OAuthCredentials
+
+@Suite("OAuthCredentials Decoding")
+struct OAuthCredentialsTests {
+
+    // Cycle 4a: CamelCase keys
+    @Test("Decodes credentials with camelCase keys")
+    func decodeCredentialsCamelCase() throws {
+        let creds = try JSONDecoder().decode(
+            OAuthCredentials.self, from: TestData.camelCaseCredentialsJSON
+        )
+
+        #expect(creds.accessToken == "test-access-token")
+        #expect(creds.refreshToken == "test-refresh-token")
+        #expect(creds.subscriptionType == "Pro")
+        #expect(creds.rateLimitTier == "tier_1")
+    }
+
+    // Cycle 4b: Snake_case keys
+    @Test("Decodes credentials with snake_case keys")
+    func decodeCredentialsSnakeCase() throws {
+        let creds = try JSONDecoder().decode(
+            OAuthCredentials.self, from: TestData.snakeCaseCredentialsJSON
+        )
+
+        #expect(creds.accessToken == "test-access-token")
+        #expect(creds.refreshToken == "test-refresh-token")
+        #expect(creds.subscriptionType == "Max")
+        #expect(creds.rateLimitTier == "tier_2")
+    }
+
+    // Cycle 4c: Epoch milliseconds → Date conversion
+    @Test("Converts expiresAt from epoch milliseconds to Date")
+    func credentialsExpiresAtConversion() throws {
+        let creds = try JSONDecoder().decode(
+            OAuthCredentials.self, from: TestData.camelCaseCredentialsJSON
+        )
+
+        // 1708123456000 ms = 1708123456.0 seconds since epoch
+        let expectedDate = Date(timeIntervalSince1970: 1708123456.0)
+        #expect(abs(creds.expiresAt.timeIntervalSince(expectedDate)) < 0.001)
+    }
+
+    // Cycle 4d: Optional fields absent
+    @Test("Handles missing optional fields gracefully")
+    func credentialsOptionalFields() throws {
+        let json = """
+        {"accessToken": "tok", "refreshToken": "ref", "expiresAt": 1000000}
+        """.data(using: .utf8)!
+
+        let creds = try JSONDecoder().decode(OAuthCredentials.self, from: json)
+
+        #expect(creds.accessToken == "tok")
+        #expect(creds.subscriptionType == nil)
+        #expect(creds.rateLimitTier == nil)
+    }
+}
+
+// MARK: - Phase 5: TokenRefreshResponse
+
+@Suite("TokenRefreshResponse Decoding")
+struct TokenRefreshResponseTests {
+
+    // Cycle 5a: Decode refresh response
+    @Test("Decodes token refresh response with snake_case keys")
+    func decodeTokenRefreshResponse() throws {
+        let response = try JSONDecoder().decode(
+            TokenRefreshResponse.self, from: TestData.tokenRefreshJSON
+        )
+
+        #expect(response.accessToken == "new-access-token")
+        #expect(response.tokenType == "Bearer")
+        #expect(response.expiresIn == 3600)
+        #expect(response.refreshToken == "new-refresh-token")
+    }
+}
+
+// MARK: - Date.fromAPI
+
+@Suite("Date.fromAPI Parsing")
+struct DateFromAPITests {
+
+    @Test("Parses ISO 8601 with microsecond fractional seconds")
+    func parseWithMicroseconds() {
+        let date = Date.fromAPI("2026-02-12T14:59:59.771647+00:00")
+        #expect(date != nil)
+    }
+
+    @Test("Parses ISO 8601 without fractional seconds")
+    func parseWithoutFractional() {
+        let date = Date.fromAPI("2026-02-08T05:00:00+00:00")
+        #expect(date != nil)
+    }
+
+    @Test("Returns nil for invalid date strings")
+    func parseInvalidDate() {
+        let date = Date.fromAPI("not-a-date")
+        #expect(date == nil)
+    }
+}
