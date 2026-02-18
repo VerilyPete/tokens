@@ -246,69 +246,130 @@ Codable, Sendable structs mirroring the API responses:
 - `UsageBucket` — contains `utilization: Double` and `resetsAt: Date` (parsed from ISO 8601 string at decode time)
 - `ExtraUsage` — contains `isEnabled: Bool`, optional `monthlyLimit`, `usedCredits`, `utilization`
 - `TokenRefreshResponse` — `accessToken`, `tokenType`, `expiresIn`, `refreshToken`
-- `OAuthCredentials` — parsed from keychain JSON, supports both camelCase and snake_case keys. Stores `expiresAt` as `Date` (converted from epoch milliseconds at parse time). Also includes `subscriptionType: String?` (e.g. "Pro", "Max") and `rateLimitTier: String?` for display purposes
+- `OAuthCredentials` — parsed from keychain JSON. Stores `expiresAt` as `Date` (converted from epoch milliseconds at parse time). Also includes `subscriptionType: String?` (e.g. "Pro", "Max") and `rateLimitTier: String?` for display purposes. Uses a **custom `init(from:)`** that tries both camelCase and snake_case key names (see below).
 
-All use `CodingKeys` with `snake_case` → `camelCase` mapping via `JSONDecoder.keyDecodingStrategy = .convertFromSnakeCase` where possible.
+**Decoding strategy notes:**
+- `TokenRefreshResponse` — uses `JSONDecoder` with `.convertFromSnakeCase` because the refresh endpoint always returns snake_case keys (`access_token`, `refresh_token`, etc.)
+- `UsageResponse` / `UsageBucket` — uses `JSONDecoder` with `.convertFromSnakeCase` because the usage API returns snake_case (`five_hour`, `seven_day_opus`, `resets_at`, etc.). `UsageBucket` has a custom `init(from:)` to parse `resetsAt` from an ISO 8601 string into a `Date`
+- `OAuthCredentials` — does **NOT** use `.convertFromSnakeCase`. The keychain JSON uses camelCase (`accessToken`, `refreshToken`, `expiresAt`), but some versions may use snake_case. A custom `init(from:)` tries camelCase first, then snake_case:
+  ```swift
+  init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: FlexibleCodingKey.self)
+      // Try camelCase first (standard keychain format), then snake_case
+      accessToken = try container.decodeFirstMatch(String.self,
+          keys: ["accessToken", "access_token"])
+      refreshToken = try container.decodeFirstMatch(String.self,
+          keys: ["refreshToken", "refresh_token"])
+      let expiresAtMs = try container.decodeFirstMatch(Double.self,
+          keys: ["expiresAt", "expires_at"])
+      expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000.0)
+      subscriptionType = try? container.decodeFirstMatch(String.self,
+          keys: ["subscriptionType", "subscription_type"])
+      // ... etc
+  }
+  ```
+  where `FlexibleCodingKey` is a simple `CodingKey` struct that accepts any string, and `decodeFirstMatch` is a small helper that tries each key in order.
 
-**ISO 8601 date parsing:** The API returns timestamps with fractional seconds (e.g. `"2026-02-12T14:59:59.771647+00:00"`). Configure a shared `ISO8601DateFormatter` with `.withFractionalSeconds`:
+**ISO 8601 date parsing:** The API returns timestamps with fractional seconds (e.g. `"2026-02-12T14:59:59.771647+00:00"`). Use `Date.ISO8601FormatStyle` (available macOS 12+), which is a value type and `Sendable` — unlike `ISO8601DateFormatter` which is an `NSObject` subclass and not `Sendable` in Swift 6:
 ```swift
-extension ISO8601DateFormatter {
-    static let apiFormat: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
+extension Date {
+    /// Parse ISO 8601 with fractional seconds; fall back to without
+    static func fromAPI(_ string: String) -> Date? {
+        // Try with fractional seconds first
+        if let date = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+            .parse(string) {
+            return date
+        }
+        // Fall back to no fractional seconds
+        return try? Date.ISO8601FormatStyle().parse(string)
+    }
 }
 ```
-Use this formatter in a custom `init(from decoder:)` on `UsageBucket` to parse `resetsAt` into a `Date` at decode time. If `.withFractionalSeconds` fails (some buckets might not have them), fall back to parsing without fractional seconds.
+Use this in a custom `init(from decoder:)` on `UsageBucket` to parse `resetsAt` into a `Date` at decode time.
 
 ### Step 4: `Sources/ClaudeUsage/KeychainReader.swift`
 
-A simple `enum KeychainReader` with `nonisolated` static async methods (no shared mutable state):
+A simple `enum KeychainReader` with `nonisolated` static methods (no shared mutable state):
 
 ```swift
 enum KeychainReader {
-    /// Shell out to `security` CLI — runs off main thread
+    /// Shell out to `security` CLI — runs off main thread via Task.detached
     nonisolated static func readCredentials() async throws -> OAuthCredentials {
-        // Read pipe data BEFORE entering the continuation to avoid
-        // capturing the non-Sendable Pipe across an isolation boundary.
-        let (process, pipe) = makeProcess()
-        let outputData: Data = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { proc in
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if proc.terminationStatus == 0 {
-                    continuation.resume(returning: data)
-                } else {
-                    continuation.resume(throwing: KeychainError.processError(proc.terminationStatus))
-                }
-            }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+        // Use Task.detached to run blocking Process code on a background thread.
+        // The detached task returns Sendable Data — no non-Sendable types cross boundaries.
+        let outputData: Data = try await Task.detached {
+            try runSecurityCLI()  // synchronous, blocking — safe in detached task
+        }.value
         return try parseCredentials(from: outputData)
     }
 
-    /// Factory method — keeps Process + Pipe creation out of the continuation closure
-    private nonisolated static func makeProcess() -> (Process, Pipe) {
+    /// Synchronous helper — runs Process and returns stdout as Data.
+    /// Called only from a detached task, so blocking is safe.
+    /// All non-Sendable types (Process, Pipe) are created, used, and destroyed
+    /// within this single synchronous scope — no Sendable violations.
+    private nonisolated static func runSecurityCLI() throws -> Data {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        return (process, pipe)
+
+        try process.run()
+
+        // IMPORTANT: Read stdout BEFORE waitUntilExit() to avoid deadlock.
+        // If the pipe buffer fills up (64KB), the process blocks on write.
+        // Reading first drains the buffer, allowing the process to finish.
+        // For small outputs (keychain credentials), deadlock is unlikely,
+        // but this ordering is the correct pattern regardless.
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            // Exit code 44 = item not found; 36 = user denied access
+            switch process.terminationStatus {
+            case 44: throw KeychainError.notFound
+            case 36: throw KeychainError.accessDenied
+            default: throw KeychainError.processError(process.terminationStatus)
+            }
+        }
+        return data
+    }
+
+    /// Parse keychain JSON into OAuthCredentials.
+    /// Handles both `{ "claudeAiOauth": { ... } }` wrapper and bare `{ "accessToken": ... }` formats.
+    private nonisolated static func parseCredentials(from data: Data) throws -> OAuthCredentials {
+        // The keychain stores the password as a UTF-8 string (possibly with trailing newline)
+        guard let jsonString = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let jsonData = jsonString.data(using: .utf8) else {
+            throw KeychainError.malformedJSON
+        }
+
+        // Try wrapped format first: { "claudeAiOauth": { ... } }
+        struct Wrapper: Decodable {
+            let claudeAiOauth: OAuthCredentials
+        }
+        if let wrapper = try? JSONDecoder().decode(Wrapper.self, from: jsonData) {
+            return wrapper.claudeAiOauth
+        }
+
+        // Fall back to top-level: { "accessToken": "...", ... }
+        do {
+            return try JSONDecoder().decode(OAuthCredentials.self, from: jsonData)
+        } catch {
+            throw KeychainError.malformedJSON
+        }
     }
 }
 ```
 
-**Why the two-phase pattern (makeProcess + continuation):** `Pipe` is not `Sendable`. In Swift 6, the `@Sendable` closure passed to `withCheckedThrowingContinuation` cannot capture non-Sendable types. By creating `Process`/`Pipe` outside the continuation and only reading `pipe.fileHandleForReading` inside the `terminationHandler` (which runs after the process completes), we keep the non-Sendable types in a single isolation domain. The continuation only receives `Data` (which is `Sendable`).
+**Why `Task.detached` + synchronous helper:** This is the cleanest Swift 6 concurrency pattern for wrapping `Process`. The core problem: `Process` and `Pipe` are not `Sendable`, so they cannot be captured by `@Sendable` closures (including `withCheckedThrowingContinuation`'s closure). The solution: keep all non-Sendable types inside a single synchronous function (`runSecurityCLI`), call it from a `Task.detached` block, and return only `Data` (which is `Sendable`) across the boundary. The detached task runs on a background thread, so `waitUntilExit()` blocking is safe.
 
-**Why `nonisolated`:** `Process` is not `Sendable` (it's a mutable class). In Swift 6 strict mode, `@MainActor` methods cannot create and run a `Process` off the main actor. By marking the method `nonisolated`, the `Process` is created and consumed entirely within a non-isolated context, avoiding both Sendability issues and main thread blocking.
+**Why `readDataToEndOfFile()` before `waitUntilExit()`:** The pipe has a finite kernel buffer (~64KB). If the process writes more than this, it blocks waiting for a reader. If we call `waitUntilExit()` first, we'd be waiting for the process to finish while the process is waiting for us to read — deadlock. Reading first drains the buffer. For keychain credentials (~500 bytes), deadlock is practically impossible, but correct ordering costs nothing.
 
-**Why `terminationHandler` + continuation instead of `waitUntilExit()`:** `waitUntilExit()` is synchronous and blocking. On a locked keychain or when a permission dialog is shown, it can block indefinitely. The continuation pattern makes it truly async.
+**Why not `terminationHandler` + continuation:** While more elegant in theory, the `terminationHandler` closure is `@Sendable` (it runs on a dispatch queue), which means it cannot capture `Pipe`. The synchronous approach avoids all Sendable boundary crossings.
 
 **Error types:**
 ```swift
@@ -318,6 +379,21 @@ enum KeychainError: Error, LocalizedError {
     case malformedJSON      // Credential data isn't valid JSON
     case missingToken       // JSON present but no accessToken field
     case processError(Int32) // security CLI exited with non-zero
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound:
+            return "No Claude Code credentials found. Run `claude login` in your terminal."
+        case .accessDenied:
+            return "Keychain access denied. Re-launch and click \"Always Allow\" when prompted."
+        case .malformedJSON:
+            return "Credential data is corrupted. Try running `claude login` again."
+        case .missingToken:
+            return "Credentials are missing the access token. Try running `claude login` again."
+        case .processError(let code):
+            return "Keychain read failed (exit code \(code))."
+        }
+    }
 }
 ```
 
@@ -334,16 +410,23 @@ final class UsageService {
     var lastUpdated: Date?
     var isLoading = false
 
-    /// Menu bar label — "37%" or "--%" before first fetch, "!!" on error
+    /// Menu bar label — "37%" or "--%" before first fetch, "!!" on error.
+    /// Suffixes match the progress bar color thresholds:
+    ///   0–80% = plain, 80–90% = "!" (orange zone), 90%+ = "!!" (red zone)
+    /// Note: suffixes cause the label width to shift, nudging adjacent menu bar icons.
+    /// This is an acceptable trade-off for at-a-glance urgency signaling.
     var menuBarLabel: String {
         if let usage {
             let pct = Int(usage.fiveHour.utilization)
-            let suffix = pct >= 95 ? "!!" : pct >= 80 ? "!" : ""
+            let suffix = pct >= 90 ? "!!" : pct >= 80 ? "!" : ""
             return "\(pct)%\(suffix)"
         }
         if error != nil { return "!!" }
         return "--%"   // no data yet
     }
+
+    // Subscription info (from keychain, for display)
+    var subscriptionType: String?  // "Pro", "Max", etc. — shown as badge in UI
 
     // Token state (in-memory only, never written to keychain)
     private var accessToken: String?
@@ -364,6 +447,32 @@ final class UsageService {
 
 **`menuBarLabel` is a computed property** — it reads `usage` and `error`, so `@Observable` tracks it automatically. Before the first successful fetch, the label shows `"--%"`. On error with no cached data, it shows `"!!"`. This ensures the menu bar always shows something meaningful.
 
+**`UsageError` enum** — wraps all error sources with user-facing messages:
+```swift
+enum UsageError: Error, LocalizedError {
+    case keychain(KeychainError)        // Keychain read/parse failed
+    case network(URLError)              // Network unreachable, timeout, etc.
+    case http(statusCode: Int)          // Unexpected HTTP status (not 401/403)
+    case unauthorized                   // 401 — token expired, refresh failed
+    case forbidden                      // 403 — wrong scope (setup-token vs login)
+    case decodingFailed                 // Response JSON didn't match expected shape
+    case refreshFailed(String)          // Token refresh failed with reason
+
+    var errorDescription: String? {
+        switch self {
+        case .keychain(let err): return err.errorDescription
+        case .network: return "Network error. Check your internet connection."
+        case .http(let code): return "Server returned HTTP \(code)."
+        case .unauthorized: return "Session expired. Run `claude login` in your terminal."
+        case .forbidden: return "Missing permissions. Run `claude login` (not `setup-token`)."
+        case .decodingFailed: return "Unexpected API response format."
+        case .refreshFailed(let reason): return "Token refresh failed: \(reason)"
+        }
+    }
+}
+```
+This type is used for `UsageService.error` and drives the error banner in `ContentView`.
+
 **Polling loop** (structured concurrency, not Timer):
 ```swift
 func startPolling() {
@@ -382,16 +491,51 @@ func stopPolling() {
 }
 ```
 
-**`detectClaudeVersion()` PATH issue:** Inside a `.app` bundle, the `PATH` is minimal (`/usr/bin:/bin:/usr/sbin:/sbin`). `claude` is typically installed in `~/.claude/bin/`, `/usr/local/bin/`, or via `nvm`/`volta` node paths. The method should:
-1. Try the common locations first: `~/.claude/bin/claude`, `/usr/local/bin/claude`
-2. Fall back to running `which claude` via `/bin/sh -l -c` (login shell, which loads the user's PATH)
-3. If all fail, keep the default `"claude-code/0.0.0"` — the User-Agent is best-effort, not critical
+**`detectClaudeVersion()`:** Uses the same `Task.detached` + synchronous helper pattern as `KeychainReader` (to avoid `Process` Sendable issues):
+```swift
+/// Best-effort: detect Claude Code version for User-Agent header.
+/// Called once at startup. Falls back to "claude-code/0.0.0" on any failure.
+private func detectClaudeVersion() async {
+    let version: String? = try? await Task.detached {
+        // Inside .app bundles, PATH is minimal. Try known locations first.
+        let candidates = [
+            "\(NSHomeDirectory())/.claude/bin/claude",
+            "/usr/local/bin/claude",
+        ]
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path),
+               let output = try? Self.runProcess(path, arguments: ["--version"]) {
+                return Self.parseVersion(from: output)
+            }
+        }
+        // Fall back to login shell (loads user's full PATH)
+        if let output = try? Self.runProcess("/bin/sh", arguments: ["-l", "-c", "claude --version"]) {
+            return Self.parseVersion(from: output)
+        }
+        return nil
+    }.value
+
+    if let version {
+        userAgent = "claude-code/\(version)"
+    }
+}
+
+/// Parse version string like "Claude Code v1.2.3" → "1.2.3"
+private nonisolated static func parseVersion(from output: String) -> String? {
+    // Match "v" followed by semver-like digits
+    output.firstMatch(of: /v(\d+\.\d+\.\d+)/)?.1.map(String.init)
+}
+```
+`runProcess` is a small synchronous helper (similar to `KeychainReader.runSecurityCLI`) that runs a `Process` and returns stdout as a `String`.
 
 **Note:** Cancel the poll task via `stopPolling()` rather than relying on `deinit` — there's a [known Swift bug](https://github.com/swiftlang/swift/issues/79551) where accessing `@Observable` properties in `deinit` produces concurrency errors.
 
-**Sleep/wake handling** (subscribe in `init()`, store the observer token):
+**`init()` — start polling + subscribe to sleep/wake:**
 ```swift
 init() {
+    // Start polling immediately — don't wait for UI interaction
+    startPolling()
+
     // Store the observer token — without this, the observer is immediately deallocated
     wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
         forName: NSWorkspace.didWakeNotification,
@@ -479,7 +623,7 @@ This uses the unified logging system — viewable via `Console.app` or `log stre
 ### Step 6: `Sources/ClaudeUsage/UsageBarView.swift`
 
 A reusable SwiftUI view that renders a horizontal progress bar:
-- Takes `label: String`, `percentage: Double`, `resetsAt: String?`
+- Takes `label: String`, `percentage: Double`, `resetsAt: Date?`
 - Color-coded: green (0–50%), yellow (50–80%), orange (80–90%), red (90–100%) — matches the thresholds in the "What We Stole" table
 - Shows "Resets in X hr Y min" computed from the `resetsAt` ISO 8601 timestamp
 - Clean, minimal design with rounded corners and 6pt bar height
@@ -530,8 +674,6 @@ struct ClaudeUsageApp: App {
     var body: some Scene {
         MenuBarExtra {
             ContentView(service: usageService)
-                .onAppear { usageService.startPolling() }
-                .onDisappear { usageService.stopPolling() }
         } label: {
             Text(usageService.menuBarLabel)  // e.g. "37%"
         }
@@ -540,17 +682,23 @@ struct ClaudeUsageApp: App {
 }
 ```
 
-- **`startPolling()` is called via `.onAppear`** on the ContentView within the MenuBarExtra. Note: with `.window` style, `.onAppear` fires when the `MenuBarExtra` scene is first installed (app launch), not when the popover opens. This ensures polling starts automatically without needing an `NSApplicationDelegate`.
-- **`stopPolling()` via `.onDisappear`** — fires on app termination. This is belt-and-suspenders cleanup since the process is exiting anyway, but it properly cancels the structured concurrency task.
+- **`startPolling()` is called from `UsageService.init()`** — NOT from `.onAppear`. With `.window`-style `MenuBarExtra`, `.onAppear` fires when the **popover is first opened** (lazily), not at app launch. If the user never clicks the menu bar icon, polling would never start. By starting in `init()`, polling begins immediately at app launch regardless of user interaction.
 - Menu bar shows live 5-hour percentage as monochrome text (e.g. "37%")
 - **No colored text** — the system renders `MenuBarExtra` labels in system menu bar style (monochrome). Use a threshold-based suffix instead: "37%" / "92%!" / "98%!!" to convey urgency
 - `.window` style gives a proper popover (not just a menu)
 - `usageService` is created once and shared
 
-**If `@Observable` label updates don't work** (see Known Risk above), replace `@State` with `@StateObject` and bridge to `ObservableObject`:
+**If `@Observable` label updates don't work** (see Known Risk above), modify `UsageService` to conform to `ObservableObject` instead. Replace `@Observable` with `ObservableObject`, add `@Published` to each public property, and use `@StateObject` in the `App` struct:
 ```swift
-// Fallback if @Observable doesn't drive MenuBarExtra label updates
-@StateObject private var usageService = UsageServiceObservable()
+// Fallback: convert UsageService from @Observable to ObservableObject
+final class UsageService: ObservableObject {
+    @Published var usage: UsageResponse?
+    @Published var error: UsageError?
+    // ... etc
+}
+
+// In App struct:
+@StateObject private var usageService = UsageService()
 ```
 
 ### Step 9: `build.sh`
@@ -616,7 +764,7 @@ These specific implementation details were validated against claude-monitor's wo
 | **OAuth client_id** | `9d1c250a-e61b-44d9-88ed-5944d1962f5e` |
 | **Proactive refresh window** | 15 minutes before expiry |
 | **Retry strategy** | Exponential backoff 2s/4s/8s for transient errors (429, 5xx, network) |
-| **Keychain multi-account quirk** | `kSecMatchLimitAll` + `kSecReturnData` doesn't work — must query attributes first, then fetch each individually |
+| **Keychain multi-account quirk** | Multiple entries return unpredictably — we support single-account only in v1 |
 | **Progress bar thresholds** | Red ≥90%, orange ≥80% (adapted from their battle-tested UX choices) |
 
 ## What We Do Differently
