@@ -243,12 +243,24 @@ Minimal plist with:
 Codable, Sendable structs mirroring the API responses:
 
 - `UsageResponse` — top-level with `fiveHour`, `sevenDay`, `sevenDayOpus?`, `sevenDaySonnet?`, `extraUsage?`
-- `UsageBucket` — contains `utilization: Double` and `resetsAt: String`
+- `UsageBucket` — contains `utilization: Double` and `resetsAt: Date` (parsed from ISO 8601 string at decode time)
 - `ExtraUsage` — contains `isEnabled: Bool`, optional `monthlyLimit`, `usedCredits`, `utilization`
 - `TokenRefreshResponse` — `accessToken`, `tokenType`, `expiresIn`, `refreshToken`
-- `OAuthCredentials` — parsed from keychain JSON, supports both camelCase and snake_case keys. Stores `expiresAt` as `Date` (converted from epoch milliseconds at parse time)
+- `OAuthCredentials` — parsed from keychain JSON, supports both camelCase and snake_case keys. Stores `expiresAt` as `Date` (converted from epoch milliseconds at parse time). Also includes `subscriptionType: String?` (e.g. "Pro", "Max") and `rateLimitTier: String?` for display purposes
 
 All use `CodingKeys` with `snake_case` → `camelCase` mapping via `JSONDecoder.keyDecodingStrategy = .convertFromSnakeCase` where possible.
+
+**ISO 8601 date parsing:** The API returns timestamps with fractional seconds (e.g. `"2026-02-12T14:59:59.771647+00:00"`). Configure a shared `ISO8601DateFormatter` with `.withFractionalSeconds`:
+```swift
+extension ISO8601DateFormatter {
+    static let apiFormat: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+}
+```
+Use this formatter in a custom `init(from decoder:)` on `UsageBucket` to parse `resetsAt` into a `Date` at decode time. If `.withFractionalSeconds` fails (some buckets might not have them), fall back to parsing without fractional seconds.
 
 ### Step 4: `Sources/ClaudeUsage/KeychainReader.swift`
 
@@ -258,15 +270,17 @@ A simple `enum KeychainReader` with `nonisolated` static async methods (no share
 enum KeychainReader {
     /// Shell out to `security` CLI — runs off main thread
     nonisolated static func readCredentials() async throws -> OAuthCredentials {
-        try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            let pipe = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-            process.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
+        // Read pipe data BEFORE entering the continuation to avoid
+        // capturing the non-Sendable Pipe across an isolation boundary.
+        let (process, pipe) = makeProcess()
+        let outputData: Data = try await withCheckedThrowingContinuation { continuation in
             process.terminationHandler = { proc in
-                // Read stdout, parse JSON, call continuation.resume
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if proc.terminationStatus == 0 {
+                    continuation.resume(returning: data)
+                } else {
+                    continuation.resume(throwing: KeychainError.processError(proc.terminationStatus))
+                }
             }
             do {
                 try process.run()
@@ -274,9 +288,23 @@ enum KeychainReader {
                 continuation.resume(throwing: error)
             }
         }
+        return try parseCredentials(from: outputData)
+    }
+
+    /// Factory method — keeps Process + Pipe creation out of the continuation closure
+    private nonisolated static func makeProcess() -> (Process, Pipe) {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        return (process, pipe)
     }
 }
 ```
+
+**Why the two-phase pattern (makeProcess + continuation):** `Pipe` is not `Sendable`. In Swift 6, the `@Sendable` closure passed to `withCheckedThrowingContinuation` cannot capture non-Sendable types. By creating `Process`/`Pipe` outside the continuation and only reading `pipe.fileHandleForReading` inside the `terminationHandler` (which runs after the process completes), we keep the non-Sendable types in a single isolation domain. The continuation only receives `Data` (which is `Sendable`).
 
 **Why `nonisolated`:** `Process` is not `Sendable` (it's a mutable class). In Swift 6 strict mode, `@MainActor` methods cannot create and run a `Process` off the main actor. By marking the method `nonisolated`, the `Process` is created and consumed entirely within a non-isolated context, avoiding both Sendability issues and main thread blocking.
 
@@ -306,6 +334,17 @@ final class UsageService {
     var lastUpdated: Date?
     var isLoading = false
 
+    /// Menu bar label — "37%" or "--%" before first fetch, "!!" on error
+    var menuBarLabel: String {
+        if let usage {
+            let pct = Int(usage.fiveHour.utilization)
+            let suffix = pct >= 95 ? "!!" : pct >= 80 ? "!" : ""
+            return "\(pct)%\(suffix)"
+        }
+        if error != nil { return "!!" }
+        return "--%"   // no data yet
+    }
+
     // Token state (in-memory only, never written to keychain)
     private var accessToken: String?
     private var refreshToken: String?
@@ -315,10 +354,15 @@ final class UsageService {
     // Refresh guard — prevents concurrent refresh attempts from racing
     private var isRefreshing = false
 
+    // Observer token for sleep/wake notifications (must be stored to keep observer alive)
+    private var wakeObserver: NSObjectProtocol?
+
     // User-Agent built from `claude --version` at init
     private var userAgent: String = "claude-code/0.0.0"
 }
 ```
+
+**`menuBarLabel` is a computed property** — it reads `usage` and `error`, so `@Observable` tracks it automatically. Before the first successful fetch, the label shows `"--%"`. On error with no cached data, it shows `"!!"`. This ensures the menu bar always shows something meaningful.
 
 **Polling loop** (structured concurrency, not Timer):
 ```swift
@@ -338,16 +382,24 @@ func stopPolling() {
 }
 ```
 
+**`detectClaudeVersion()` PATH issue:** Inside a `.app` bundle, the `PATH` is minimal (`/usr/bin:/bin:/usr/sbin:/sbin`). `claude` is typically installed in `~/.claude/bin/`, `/usr/local/bin/`, or via `nvm`/`volta` node paths. The method should:
+1. Try the common locations first: `~/.claude/bin/claude`, `/usr/local/bin/claude`
+2. Fall back to running `which claude` via `/bin/sh -l -c` (login shell, which loads the user's PATH)
+3. If all fail, keep the default `"claude-code/0.0.0"` — the User-Agent is best-effort, not critical
+
 **Note:** Cancel the poll task via `stopPolling()` rather than relying on `deinit` — there's a [known Swift bug](https://github.com/swiftlang/swift/issues/79551) where accessing `@Observable` properties in `deinit` produces concurrency errors.
 
-**Sleep/wake handling** (subscribe in `init()`):
+**Sleep/wake handling** (subscribe in `init()`, store the observer token):
 ```swift
 init() {
-    NSWorkspace.shared.notificationCenter.addObserver(
+    // Store the observer token — without this, the observer is immediately deallocated
+    wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
         forName: NSWorkspace.didWakeNotification,
         object: nil, queue: .main
     ) { [weak self] _ in
-        Task { @MainActor in
+        // Capture weak self, then hop to @MainActor inside the Task
+        guard let self else { return }
+        Task { @MainActor [weak self] in
             // Brief delay for network to come back up
             try? await Task.sleep(for: .seconds(3))
             await self?.fetchUsage()
@@ -356,15 +408,21 @@ init() {
 }
 ```
 
+**Why two `[weak self]` captures:** The outer `[weak self]` in the notification closure prevents a retain cycle between `NotificationCenter` and `UsageService`. The inner `[weak self]` in `Task { @MainActor in ... }` is needed because the `Task` closure is `@Sendable` — in Swift 6, you cannot implicitly capture `self` from a non-`@Sendable` outer closure into a `@Sendable` inner closure. The `guard let self` on the outer closure is a quick nil-check before even creating the Task.
+
+**Why store `wakeObserver`:** `addObserver(forName:object:queue:using:)` returns an opaque observer token. If not stored, the observer is immediately released and the notification is never delivered. Store it as `private var wakeObserver: NSObjectProtocol?` and nil it out in cleanup.
+
 **Fetch flow:**
 1. If no token in memory → read from keychain (via `nonisolated` `KeychainReader`)
 2. If token expires within 15 minutes → proactively refresh
 3. `GET /api/oauth/usage` with auth headers
 4. On success → update `usage`, `lastUpdated`, clear `error`
 5. On 401 → attempt refresh → retry once
-6. On refresh failure → re-read keychain (Claude Code may have refreshed) → retry once
-7. On persistent failure → set `error` with user-facing message
-8. Transient errors (429, 5xx, network) → exponential backoff (2s, 4s, 8s), max 3 retries
+6. On 403 → likely wrong scope — show specific message: "Please run `claude login` (not `setup-token`) to grant usage access."  Do NOT attempt refresh (it won't help — the token's scope is fixed at login time)
+7. On refresh failure → re-read keychain (Claude Code may have refreshed) → retry once
+8. On persistent failure → set `error` with user-facing message
+9. Transient errors (429, 5xx, network) → exponential backoff (2s, 4s, 8s), max 3 retries per cycle
+10. **Extended outage backoff:** If 3+ consecutive poll cycles all fail, increase the poll interval from 120s to 300s (5 min) to reduce noise. Reset to 120s on first success
 
 **Concurrent refresh guard:**
 ```swift
@@ -387,6 +445,17 @@ request.setValue(userAgent, forHTTPHeaderField: "User-Agent")  // dynamic
 - `POST https://console.anthropic.com/v1/oauth/token`
 - Content-Type: `application/x-www-form-urlencoded` (NOT JSON)
 - Body: `grant_type=refresh_token&refresh_token=...&client_id=9d1c250a-...`
+- **Critical: percent-encode the refresh token** — tokens can contain `+`, `/`, `=` and other characters that break form-urlencoded bodies. Use `addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)` or build the body via `URLComponents` to handle encoding automatically:
+  ```swift
+  var components = URLComponents()
+  components.queryItems = [
+      URLQueryItem(name: "grant_type", value: "refresh_token"),
+      URLQueryItem(name: "refresh_token", value: refreshToken),
+      URLQueryItem(name: "client_id", value: oauthClientId),
+  ]
+  request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
+  ```
+  Note: `URLComponents` encodes spaces as `+` by default which is valid for form encoding, but some servers expect `%20`. Test against Anthropic's server. If issues arise, manually replace `+` with `%20` in the encoded output.
 - On success: store new tokens **in memory only** (never write to keychain), convert `expires_in` seconds to `Date` immediately
 
 **Scope validation:**
@@ -411,7 +480,7 @@ This uses the unified logging system — viewable via `Console.app` or `log stre
 
 A reusable SwiftUI view that renders a horizontal progress bar:
 - Takes `label: String`, `percentage: Double`, `resetsAt: String?`
-- Color-coded: green (0–50%), yellow (50–80%), orange (80–95%), red (95–100%)
+- Color-coded: green (0–50%), yellow (50–80%), orange (80–90%), red (90–100%) — matches the thresholds in the "What We Stole" table
 - Shows "Resets in X hr Y min" computed from the `resetsAt` ISO 8601 timestamp
 - Clean, minimal design with rounded corners and 6pt bar height
 
@@ -433,6 +502,7 @@ Every `UsageBarView` must have `.accessibilityLabel` and `.accessibilityValue` s
 
 The main popover view containing:
 - A header row with "Claude Usage" and a refresh button (arrow.clockwise SF Symbol)
+- **Subscription type badge** — show "Pro" or "Max" from the keychain credentials' `subscriptionType` field (e.g. a subtle `Text("Pro").font(.caption).padding(.horizontal, 6).background(.secondary.opacity(0.2)).clipShape(Capsule())`)
 - **First-launch message** (shown before first keychain read): explains the upcoming keychain permission dialog and instructs user to click "Always Allow"
 - `UsageBarView` for **5-Hour Session** usage
 - `UsageBarView` for **7-Day Weekly** usage
@@ -460,6 +530,8 @@ struct ClaudeUsageApp: App {
     var body: some Scene {
         MenuBarExtra {
             ContentView(service: usageService)
+                .onAppear { usageService.startPolling() }
+                .onDisappear { usageService.stopPolling() }
         } label: {
             Text(usageService.menuBarLabel)  // e.g. "37%"
         }
@@ -468,6 +540,8 @@ struct ClaudeUsageApp: App {
 }
 ```
 
+- **`startPolling()` is called via `.onAppear`** on the ContentView within the MenuBarExtra. Note: with `.window` style, `.onAppear` fires when the `MenuBarExtra` scene is first installed (app launch), not when the popover opens. This ensures polling starts automatically without needing an `NSApplicationDelegate`.
+- **`stopPolling()` via `.onDisappear`** — fires on app termination. This is belt-and-suspenders cleanup since the process is exiting anyway, but it properly cancels the structured concurrency task.
 - Menu bar shows live 5-hour percentage as monochrome text (e.g. "37%")
 - **No colored text** — the system renders `MenuBarExtra` labels in system menu bar style (monochrome). Use a threshold-based suffix instead: "37%" / "92%!" / "98%!!" to convey urgency
 - `.window` style gives a proper popover (not just a menu)
@@ -482,7 +556,8 @@ struct ClaudeUsageApp: App {
 ### Step 9: `build.sh`
 
 A shell script that:
-1. Runs `swift build -c release`
+1. **Checks Swift version** — runs `swift --version` and verifies the toolchain is 6.0+ (required for Swift 6 language mode). If the version is too old, prints a clear error message and exits. Parse with: `swift --version 2>&1 | grep -oE 'Swift version [0-9]+\.[0-9]+'`
+2. Runs `swift build -c release`
 2. Creates `ClaudeUsage.app/Contents/MacOS/` and `ClaudeUsage.app/Contents/`
 3. Copies the built binary into `MacOS/`
 4. Copies `Info.plist` into `Contents/` (for `.app` bundle — the binary also has it embedded via linker, but the bundle copy is the canonical location for a proper `.app`)
@@ -542,7 +617,7 @@ These specific implementation details were validated against claude-monitor's wo
 | **Proactive refresh window** | 15 minutes before expiry |
 | **Retry strategy** | Exponential backoff 2s/4s/8s for transient errors (429, 5xx, network) |
 | **Keychain multi-account quirk** | `kSecMatchLimitAll` + `kSecReturnData` doesn't work — must query attributes first, then fetch each individually |
-| **Progress bar thresholds** | Red >95%, orange ≥90% (matches their battle-tested UX choices) |
+| **Progress bar thresholds** | Red ≥90%, orange ≥80% (adapted from their battle-tested UX choices) |
 
 ## What We Do Differently
 
