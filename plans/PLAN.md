@@ -488,6 +488,10 @@ func startPolling() {
 func stopPolling() {
     pollTask?.cancel()
     pollTask = nil
+    if let wakeObserver {
+        NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        self.wakeObserver = nil
+    }
 }
 ```
 
@@ -523,10 +527,10 @@ private func detectClaudeVersion() async {
 /// Parse version string like "Claude Code v1.2.3" → "1.2.3"
 private nonisolated static func parseVersion(from output: String) -> String? {
     // Match "v" followed by semver-like digits
-    output.firstMatch(of: /v(\d+\.\d+\.\d+)/)?.1.map(String.init)
+    output.firstMatch(of: /v(\d+\.\d+\.\d+)/).map { String($0.1) }
 }
 ```
-`runProcess` is a small synchronous helper (similar to `KeychainReader.runSecurityCLI`) that runs a `Process` and returns stdout as a `String`.
+`runProcess` is a `private nonisolated static func runProcess(_ executablePath: String, arguments: [String]) throws -> String` — a small synchronous helper identical in structure to `KeychainReader.runSecurityCLI` (creates `Process`+`Pipe`, reads stdout, waits for exit). Must be `nonisolated static` since it's called from inside a `Task.detached` block (which is not `@MainActor`-isolated).
 
 **Note:** Cancel the poll task via `stopPolling()` rather than relying on `deinit` — there's a [known Swift bug](https://github.com/swiftlang/swift/issues/79551) where accessing `@Observable` properties in `deinit` produces concurrency errors.
 
@@ -589,17 +593,31 @@ request.setValue(userAgent, forHTTPHeaderField: "User-Agent")  // dynamic
 - `POST https://console.anthropic.com/v1/oauth/token`
 - Content-Type: `application/x-www-form-urlencoded` (NOT JSON)
 - Body: `grant_type=refresh_token&refresh_token=...&client_id=9d1c250a-...`
-- **Critical: percent-encode the refresh token** — tokens can contain `+`, `/`, `=` and other characters that break form-urlencoded bodies. Use `addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)` or build the body via `URLComponents` to handle encoding automatically:
+- **Critical: percent-encode the refresh token** — tokens can contain `+`, `/`, `=` and other characters that break form-urlencoded bodies. Do NOT rely on `URLComponents`/`URLQueryItem` — its handling of `+` is inconsistent across OS versions, and a literal `+` in a refresh token could be silently decoded as a space on the server, corrupting the single-use token. Instead, manually percent-encode each value with a strict allowed character set:
   ```swift
-  var components = URLComponents()
-  components.queryItems = [
-      URLQueryItem(name: "grant_type", value: "refresh_token"),
-      URLQueryItem(name: "refresh_token", value: refreshToken),
-      URLQueryItem(name: "client_id", value: oauthClientId),
-  ]
-  request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
+  /// Allowed chars for form-urlencoded values: unreserved chars only (RFC 3986).
+  /// Explicitly excludes +, &, = which have special meaning in form encoding.
+  private static let formValueAllowed: CharacterSet = {
+      var cs = CharacterSet.alphanumerics
+      cs.insert(charactersIn: "-._~")  // unreserved chars
+      return cs
+  }()
+
+  private func buildRefreshBody(refreshToken: String) -> Data? {
+      let pairs: [(String, String)] = [
+          ("grant_type", "refresh_token"),
+          ("refresh_token", refreshToken),
+          ("client_id", oauthClientId),
+      ]
+      let encoded = pairs.map { key, value in
+          let k = key.addingPercentEncoding(withAllowedCharacters: Self.formValueAllowed)!
+          let v = value.addingPercentEncoding(withAllowedCharacters: Self.formValueAllowed)!
+          return "\(k)=\(v)"
+      }.joined(separator: "&")
+      return encoded.data(using: .utf8)
+  }
   ```
-  Note: `URLComponents` encodes spaces as `+` by default which is valid for form encoding, but some servers expect `%20`. Test against Anthropic's server. If issues arise, manually replace `+` with `%20` in the encoded output.
+  This guarantees that `+` → `%2B`, `=` → `%3D`, `/` → `%2F`, etc., regardless of OS version.
 - On success: store new tokens **in memory only** (never write to keychain), convert `expires_in` seconds to `Date` immediately
 
 **Scope validation:**
