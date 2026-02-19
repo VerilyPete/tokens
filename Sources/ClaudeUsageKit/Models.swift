@@ -229,29 +229,19 @@ extension KeyedDecodingContainer where Key == FlexibleCodingKey {
 // MARK: - Date Parsing
 
 extension Date {
-    /// Parse ISO 8601 with fractional seconds; fall back to without.
-    /// Uses Date.ISO8601FormatStyle which is Sendable (unlike ISO8601DateFormatter).
+    /// Parse ISO 8601 date strings from the API.
+    /// Uses ISO8601DateFormatter with .withInternetDateTime which correctly
+    /// handles colon-separated timezone offsets (+00:00) on all locales.
+    /// (Date.ISO8601FormatStyle's timeZoneSeparator proved unreliable on
+    /// some macOS configurations, silently interpreting +00:00 offsets using
+    /// the system timezone instead of UTC.)
     public static func fromAPI(_ string: String) -> Date? {
-        // API returns timezone offsets with colon separator (+00:00), so we
-        // must specify .colon — the default (.omitted) expects +0000 and
-        // silently falls back to the local timezone on mismatch.
-        if let date = try? Date.ISO8601FormatStyle(
-            timeZoneSeparator: .colon,
-            includingFractionalSeconds: true
-        ).parse(string) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: string) {
             return date
         }
-        if let date = try? Date.ISO8601FormatStyle(
-            timeZoneSeparator: .colon
-        ).parse(string) {
-            return date
-        }
-        // Fallback for Z-suffix or +0000 style offsets
-        if let date = try? Date.ISO8601FormatStyle(
-            includingFractionalSeconds: true
-        ).parse(string) {
-            return date
-        }
-        return try? Date.ISO8601FormatStyle().parse(string)
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: string)
     }
 }
