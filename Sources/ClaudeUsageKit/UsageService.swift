@@ -45,12 +45,9 @@ public final class UsageService {
     private var accessToken: String?
     private var refreshToken: String?
     private var tokenExpiresAt: Date?
-    // nonisolated(unsafe) so deinit can cancel/remove these.
-    // All writes happen from @MainActor-isolated methods; deinit
-    // is the only nonisolated reader (and the final one).
-    private nonisolated(unsafe) var pollTask: Task<Void, Never>?
-    private nonisolated(unsafe) var wakeTask: Task<Void, Never>?
-    private nonisolated(unsafe) var wakeObserver: NSObjectProtocol?
+    private var pollTask: Task<Void, Never>?
+    private var wakeTask: Task<Void, Never>?
+    private var wakeObserver: NSObjectProtocol?
     private var isRefreshing = false
     private(set) var consecutiveFailures = 0
 
@@ -396,7 +393,7 @@ public final class UsageService {
     /// Must be nonisolated static since it's called from Task.detached.
     /// Terminates the child process and throws `.processTimeout` if it does
     /// not exit within `processTimeoutSeconds`.
-    private static let processTimeoutSeconds: Double = 10
+    private nonisolated static let processTimeoutSeconds: Double = 10
 
     private nonisolated static func runProcess(
         _ executablePath: String, arguments: [String]
