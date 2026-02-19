@@ -41,7 +41,7 @@ tokens/
 │   │   ├── Protocols.swift                # KeychainReading, NetworkSession
 │   │   ├── KeychainReader.swift           # Concrete keychain via security CLI
 │   │   ├── UsageService.swift             # @MainActor @Observable service
-│   │   └── Formatting.swift               # Color thresholds, time formatting (pure functions)
+│   │   └── Formatting.swift               # UsageLevel enum, time formatting, menu bar label (pure functions)
 │   └── ClaudeUsage/                       # EXECUTABLE TARGET (thin UI shell)
 │       ├── ClaudeUsageApp.swift            # @main App with MenuBarExtra
 │       ├── ContentView.swift              # Popover UI
@@ -51,7 +51,7 @@ tokens/
 │       ├── Mocks.swift                    # MockKeychainReader, MockNetworkSession
 │       ├── ModelsTests.swift              # JSON parsing, date conversion, flexible keys
 │       ├── KeychainParsingTests.swift     # Wrapped/bare format, edge cases
-│       ├── FormattingTests.swift          # Colors, time strings, menuBarLabel
+│       ├── FormattingTests.swift          # UsageLevel, time strings, time ago, menuBarLabel
 │       └── UsageServiceTests.swift        # Fetch flow, token refresh, error handling
 └── plans/
     ├── PLAN.md                            # Architecture reference (unchanged)
@@ -95,6 +95,18 @@ GREEN: Date.fromAPI() already handles fallback — test should pass (if not, add
 ```
 RED:   testDecodeBucketWithBadDate — parse {"utilization":37.0,"resets_at":"not-a-date"}, expect DecodingError
 GREEN: Throw in init(from:) when Date.fromAPI returns nil
+```
+
+**Cycle 2d: Date.fromAPI with Z shorthand timezone**
+```
+RED:   testParseWithZTimezone — Date.fromAPI("2026-02-08T05:00:00Z") != nil
+GREEN: ISO8601FormatStyle already handles Z suffix
+```
+
+**Cycle 2e: Date.fromAPI with non-UTC offset**
+```
+RED:   testParseWithNonUTCOffset — Date.fromAPI("2026-02-08T10:30:00+05:30") equals UTC 05:00
+GREEN: ISO8601FormatStyle correctly normalizes timezone offsets
 ```
 
 ---
@@ -153,6 +165,28 @@ GREEN: Implement TokenRefreshResponse, decode with .convertFromSnakeCase
 
 ---
 
+### Phase 5b: Models — `ExtraUsage`
+
+**Cycle 5b-a: Decode ExtraUsage with non-null credit values**
+```
+RED:   testDecodeExtraUsageEnabled — is_enabled: true, monthly_limit: 100, used_credits: 12.5, utilization: 12.5
+GREEN: ExtraUsage struct with snake_case CodingKeys already handles this
+```
+
+**Cycle 5b-b: Decode ExtraUsage with all-null optional fields**
+```
+RED:   testDecodeExtraUsageDisabled — is_enabled: false, all others null
+GREEN: Optional fields decode as nil via decodeIfPresent
+```
+
+**Cycle 5b-c: Missing extra_usage key**
+```
+RED:   testDecodeExtraUsageMissing — minimal JSON without extra_usage key → nil
+GREEN: UsageResponse.extraUsage is Optional, decodeIfPresent returns nil
+```
+
+---
+
 ### Phase 6: Keychain Parsing (unit-testable without Keychain)
 
 **Cycle 6a: Wrapped format**
@@ -179,38 +213,50 @@ RED:   testParseWithTrailingNewline — valid JSON + "\n"
 GREEN: trimmingCharacters(in: .whitespacesAndNewlines) before parsing
 ```
 
+**Cycle 6e: Snake_case keys inside wrapper**
+```
+RED:   testParseSnakeCaseInWrapper — wrapped JSON with snake_case keys inside
+GREEN: FlexibleCodingKey handles both key styles regardless of wrapper
+```
+
 ---
 
-### Phase 7: Formatting — Color Thresholds
+### Phase 7: Formatting — Usage Level Thresholds
 
 **Cycle 7a: Green zone (0–50%)**
 ```
-RED:   testColorGreen — usageColor(for: 25) == .green
-GREEN: Implement usageColor(for:) function
+RED:   testLevelGreen — usageLevel(for: 25) == .green
+GREEN: Implement usageLevel(for:) function returning UsageLevel enum
 ```
 
 **Cycle 7b: Yellow zone (50–80%)**
 ```
-RED:   testColorYellow — usageColor(for: 65) == .yellow
+RED:   testLevelYellow — usageLevel(for: 65) == .yellow
 GREEN: Add yellow threshold
 ```
 
 **Cycle 7c: Orange zone (80–90%)**
 ```
-RED:   testColorOrange — usageColor(for: 85) == .orange
+RED:   testLevelOrange — usageLevel(for: 85) == .orange
 GREEN: Add orange threshold
 ```
 
 **Cycle 7d: Red zone (90–100%)**
 ```
-RED:   testColorRed — usageColor(for: 95) == .red
+RED:   testLevelRed — usageLevel(for: 95) == .red
 GREEN: Add red threshold
 ```
 
 **Cycle 7e: Boundary values**
 ```
-RED:   testColorBoundaries — 50→yellow, 80→orange, 90→red, 0→green, 100→red
+RED:   testLevelBoundaries — 50→yellow, 80→orange, 90→red, 0→green, 100→red
 GREEN: Verify >= comparisons are correct
+```
+
+**Cycle 7f: Edge cases**
+```
+RED:   testLevelEdgeCases — negative→green, >100→red
+GREEN: Default case handles negatives; 90... handles >100
 ```
 
 ---
@@ -239,6 +285,30 @@ GREEN: Handle < 24 hours case
 ```
 RED:   testTimeStringDaysHours — formatResetTime(seconds: 108000) == "1d 6h"
 GREEN: Handle >= 24 hours case
+```
+
+**Cycle 8e: Small positive (< 60s rounds up to 1 min)**
+```
+RED:   testTimeStringSmallPositive — formatResetTime(seconds: 30) == "1 min"
+GREEN: Use max(1, minutes) to ensure at least "1 min"
+```
+
+**Cycle 8f: formatResetTime from Date wrapper**
+```
+RED:   testFormatResetTimeFromDate — formatResetTime(from: future, now: now) == "1h 0m"
+GREEN: Implement formatResetTime(from:now:) calling formatResetTime(seconds:)
+```
+
+**Cycle 8g: formatTimeAgo — just now**
+```
+RED:   testFormatTimeAgoJustNow — formatTimeAgo(from: now) == "just now"
+GREEN: Implement formatTimeAgo returning "just now" for < 60s
+```
+
+**Cycle 8h: formatTimeAgo — minutes and hours**
+```
+RED:   testFormatTimeAgoMinutes — formatTimeAgo(from: 2minAgo) == "2 min ago"
+GREEN: Delegate to formatResetTime for > 60s, append " ago"
 ```
 
 ---
@@ -273,6 +343,12 @@ GREEN: Handle nil utilization
 ```
 RED:   testMenuBarLabelError — formatMenuBarLabel(utilization: nil, hasError: true, hasData: false) == "!!"
 GREEN: Handle error state
+```
+
+**Cycle 9f: Error with cached data**
+```
+RED:   testMenuBarLabelErrorWithCachedData — formatMenuBarLabel(utilization: 37, hasError: true, hasData: true) == "37%"
+GREEN: Prioritize cached data over error display
 ```
 
 ---
@@ -335,22 +411,88 @@ RED:   testFetchNetworkError — URLError.notConnectedToInternet → .network er
 GREEN: Catch URLError, wrap in .network
 ```
 
-**Cycle 12e: Token near-expiry triggers proactive refresh**
+**Cycle 12e: Keychain error propagates**
+```
+RED:   testFetchKeychainError — keychain returns .notFound → service.error == .keychain(.notFound)
+GREEN: Catch KeychainError in fetchUsage, wrap in .keychain
+```
+
+**Cycle 12f: Menu bar label reflects state**
+```
+RED:   testMenuBarLabelUpdates — before fetch "--%", after fetch "37%"
+GREEN: menuBarLabel computed property uses formatMenuBarLabel
+```
+
+**Cycle 12g: Subscription type from keychain**
+```
+RED:   testSubscriptionTypeFromKeychain — credentials with subscriptionType "Max" → service.subscriptionType == "Max"
+GREEN: Set subscriptionType from credentials in fetchUsage
+```
+
+**Cycle 12h: Decoding error**
+```
+RED:   testFetchDecodingError — malformed response → .decodingFailed error
+GREEN: Catch DecodingError, map to .decodingFailed
+```
+
+**Cycle 12i: Headers set correctly**
+```
+RED:   testFetchSetsHeaders — Authorization, anthropic-beta, User-Agent headers present
+GREEN: Set headers on URLRequest in performFetch
+```
+
+**Cycle 12j: Token near-expiry triggers proactive refresh**
 ```
 RED:   testProactiveRefresh — token expires in 10 min → refresh before fetch
 GREEN: Check tokenExpiresAt before fetch, refresh if < 15 min
 ```
 
-**Cycle 12f: Concurrent refresh guard**
-```
-RED:   testConcurrentRefreshGuard — two refreshes at once, only one executes
-GREEN: isRefreshing flag with early return
-```
-
-**Cycle 12g: Refresh failure falls back to keychain re-read**
+**Cycle 12k: Refresh failure falls back to keychain re-read**
 ```
 RED:   testRefreshFailureFallsBackToKeychain — refresh fails → re-read keychain → retry
 GREEN: On refresh failure, call keychainReader.readCredentials() again
+```
+
+**Cycle 12l: 429 triggers transient retry**
+```
+RED:   testFetch429Retry — first attempt 429, second attempt 200 → usage populated
+GREEN: Retry loop in performFetch for 429/5xx status codes
+```
+
+**Cycle 12m: 429 exhausts all retries**
+```
+RED:   testFetch429ExhaustedRetries — all 4 attempts return 429 → .http(429) error, 4 total requests
+GREEN: After 3 retries, set error and return
+```
+
+**Cycle 12n: 5xx triggers transient retry**
+```
+RED:   testFetch500Retry — 500 then 200 → usage populated
+GREEN: 500...599 range included in retry logic
+```
+
+**Cycle 12o: reloadCredentials clears error and re-fetches**
+```
+RED:   testReloadCredentialsClearsError — keychain error → reload with valid creds → error cleared
+GREEN: reloadCredentials sets error = nil, clears tokens, calls fetchUsage
+```
+
+**Cycle 12p: Network error triggers transient retry**
+```
+RED:   testFetchNetworkErrorRetry — URLError(.timedOut) then 200 → usage populated
+GREEN: URLError caught in retry loop, retried up to 3 times
+```
+
+**Cycle 12q: Decoding error is not retried**
+```
+RED:   testFetchDecodingErrorNoRetry — malformed JSON → .decodingFailed, only 1 request made
+GREEN: DecodingError caught outside retry loop, returns immediately
+```
+
+**Cycle 12r: Error with cached data shows cached menu bar label**
+```
+RED:   testMenuBarLabelWithCachedDataOnError — success then 403 → menuBarLabel still "37%"
+GREEN: formatMenuBarLabel prioritizes utilization when hasData is true
 ```
 
 ---
@@ -377,11 +519,11 @@ Implement in order:
 
 | Test File | # Tests | What's Covered |
 |---|---|---|
-| `ModelsTests.swift` | 10 | UsageBucket, UsageResponse, OAuthCredentials, TokenRefreshResponse |
-| `KeychainParsingTests.swift` | 4 | Wrapped/bare format, malformed JSON, whitespace |
-| `FormattingTests.swift` | 12 | Color thresholds, time strings, menu bar label |
-| `UsageServiceTests.swift` | 9 | Form encoding, version parsing, fetch flow, refresh, errors |
-| **Total** | **35** | All business logic |
+| `ModelsTests.swift` | 18 | UsageBucket (3), UsageResponse (2), OAuthCredentials (4), TokenRefreshResponse (1), Date.fromAPI (5), ExtraUsage (3) |
+| `KeychainParsingTests.swift` | 5 | Wrapped/bare format, malformed JSON, whitespace, snake_case in wrapper |
+| `FormattingTests.swift` | 18 | UsageLevel thresholds (6), reset time (5), time ago (3), menu bar label (4) |
+| `UsageServiceTests.swift` | 21 | Form encoding (3), version parsing (3), fetch flow (15): success, 401+refresh, 403, network, keychain, menuBarLabel, subscriptionType, decoding, headers, proactive refresh, refresh fallback, 429 retry, 429 exhausted, 500 retry, reload, network retry, decoding no-retry, cached label on error |
+| **Total** | **62** | All business logic |
 
 ---
 

@@ -11,6 +11,14 @@ let oauthClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 /// Beta header value required for the usage API.
 let betaHeaderValue = "oauth-2025-04-20"
 
+/// Allowed chars for form-urlencoded values: unreserved chars only (RFC 3986).
+/// Module-level so nonisolated static methods can access it without actor hop.
+private let formValueAllowed: CharacterSet = {
+    var cs = CharacterSet.alphanumerics
+    cs.insert(charactersIn: "-._~")
+    return cs
+}()
+
 // MARK: - UsageService
 
 @MainActor @Observable
@@ -46,7 +54,10 @@ public final class UsageService {
 
     private let keychainReader: any KeychainReading
     private let networkSession: any NetworkSession
+    /// User-Agent header value. Internal for test verification.
     var userAgent: String = "claude-code/0.0.0"
+    /// Base delay for transient error retries (seconds). Set to 0 in tests.
+    var retryBaseDelay: TimeInterval = 2.0
 
     // MARK: Init
 
@@ -78,6 +89,9 @@ public final class UsageService {
     // MARK: Polling
 
     public func startPolling() {
+        // Prevent double-registration: clean up any existing poll + wake observer
+        stopPolling()
+
         pollTask = Task {
             await detectClaudeVersion()
             while !Task.isCancelled {
@@ -91,7 +105,7 @@ public final class UsageService {
             forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
+            logger.info("System wake detected, scheduling refresh")
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(3))
                 await self?.fetchUsage()
@@ -115,6 +129,7 @@ public final class UsageService {
         accessToken = nil
         refreshToken = nil
         tokenExpiresAt = nil
+        error = nil
         await fetchUsage()
     }
 
@@ -132,6 +147,7 @@ public final class UsageService {
                 refreshToken = creds.refreshToken
                 tokenExpiresAt = creds.expiresAt
                 subscriptionType = creds.subscriptionType
+                logger.info("Keychain read succeeded, subscription: \(creds.subscriptionType ?? "unknown")")
             } catch let err as KeychainError {
                 error = .keychain(err)
                 logger.error("Keychain read failed: \(err.localizedDescription)")
@@ -163,71 +179,94 @@ public final class UsageService {
         request.setValue(betaHeaderValue, forHTTPHeaderField: "anthropic-beta")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
 
-        do {
-            let (data, response) = try await networkSession.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                error = .network(URLError(.badServerResponse))
+        // Retry loop: up to 4 attempts (initial + 3 retries) for transient errors
+        for attempt in 0...3 {
+            if attempt > 0 {
+                let delay = retryBaseDelay * Double(1 << (attempt - 1))  // 2, 4, 8
+                try? await Task.sleep(for: .seconds(delay))
+            }
+
+            do {
+                let (data, response) = try await networkSession.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    if attempt < 3 { continue }
+                    error = .network(URLError(.badServerResponse))
+                    consecutiveFailures += 1
+                    return
+                }
+
+                switch httpResponse.statusCode {
+                case 200:
+                    let decoded = try JSONDecoder().decode(UsageResponse.self, from: data)
+                    usage = decoded
+                    lastUpdated = Date()
+                    error = nil
+                    consecutiveFailures = 0
+                    logger.info("Usage fetched: \(decoded.fiveHour.utilization)%")
+                    return
+
+                case 401:
+                    // Not transient — handle auth specifically, no backoff retry
+                    if retryOn401 {
+                        logger.info("Got 401, attempting token refresh")
+                        let refreshed = await refreshTokenIfNeeded()
+                        if refreshed {
+                            await performFetch(retryOn401: false)
+                        } else {
+                            // Refresh failed — try re-reading keychain
+                            do {
+                                let creds = try await keychainReader.readCredentials()
+                                accessToken = creds.accessToken
+                                refreshToken = creds.refreshToken
+                                tokenExpiresAt = creds.expiresAt
+                                await performFetch(retryOn401: false)
+                            } catch {
+                                self.error = .unauthorized
+                                consecutiveFailures += 1
+                            }
+                        }
+                    } else {
+                        error = .unauthorized
+                        consecutiveFailures += 1
+                    }
+                    return
+
+                case 403:
+                    error = .forbidden
+                    consecutiveFailures += 1
+                    logger.error("403 Forbidden — likely wrong scope (setup-token vs login)")
+                    return
+
+                case 429, 500...599:
+                    // Transient — retry with backoff
+                    logger.warning("Transient error: HTTP \(httpResponse.statusCode), attempt \(attempt + 1)/4")
+                    if attempt < 3 { continue }
+                    error = .http(statusCode: httpResponse.statusCode)
+                    consecutiveFailures += 1
+                    return
+
+                default:
+                    error = .http(statusCode: httpResponse.statusCode)
+                    consecutiveFailures += 1
+                    return
+                }
+            } catch let urlError as URLError {
+                // Network errors are transient — retry with backoff
+                logger.error("Network error (attempt \(attempt + 1)/4): \(urlError.localizedDescription)")
+                if attempt < 3 { continue }
+                error = .network(urlError)
+                consecutiveFailures += 1
+                return
+            } catch is DecodingError {
+                // Decoding errors are not transient — don't retry
+                error = .decodingFailed
+                consecutiveFailures += 1
+                return
+            } catch {
+                self.error = .network(URLError(.unknown))
                 consecutiveFailures += 1
                 return
             }
-
-            switch httpResponse.statusCode {
-            case 200:
-                let decoded = try JSONDecoder().decode(UsageResponse.self, from: data)
-                usage = decoded
-                lastUpdated = Date()
-                error = nil
-                consecutiveFailures = 0
-                logger.info("Usage fetched: \(decoded.fiveHour.utilization)%")
-
-            case 401:
-                if retryOn401 {
-                    logger.info("Got 401, attempting token refresh")
-                    let refreshed = await refreshTokenIfNeeded()
-                    if refreshed {
-                        await performFetch(retryOn401: false)
-                    } else {
-                        // Refresh failed — try re-reading keychain
-                        do {
-                            let creds = try await keychainReader.readCredentials()
-                            accessToken = creds.accessToken
-                            refreshToken = creds.refreshToken
-                            tokenExpiresAt = creds.expiresAt
-                            await performFetch(retryOn401: false)
-                        } catch {
-                            self.error = .unauthorized
-                            consecutiveFailures += 1
-                        }
-                    }
-                } else {
-                    error = .unauthorized
-                    consecutiveFailures += 1
-                }
-
-            case 403:
-                error = .forbidden
-                consecutiveFailures += 1
-                logger.error("403 Forbidden — likely wrong scope (setup-token vs login)")
-
-            case 429, 500...599:
-                error = .http(statusCode: httpResponse.statusCode)
-                consecutiveFailures += 1
-                logger.warning("Transient error: HTTP \(httpResponse.statusCode)")
-
-            default:
-                error = .http(statusCode: httpResponse.statusCode)
-                consecutiveFailures += 1
-            }
-        } catch let urlError as URLError {
-            error = .network(urlError)
-            consecutiveFailures += 1
-            logger.error("Network error: \(urlError.localizedDescription)")
-        } catch is DecodingError {
-            error = .decodingFailed
-            consecutiveFailures += 1
-        } catch {
-            self.error = .network(URLError(.unknown))
-            consecutiveFailures += 1
         }
     }
 
@@ -272,19 +311,11 @@ public final class UsageService {
         }
     }
 
-    // MARK: Form Encoding (internal static for testability)
-
-    /// Allowed chars for form-urlencoded values: unreserved chars only (RFC 3986).
-    /// Explicitly excludes +, &, = which have special meaning in form encoding.
-    private static let formValueAllowed: CharacterSet = {
-        var cs = CharacterSet.alphanumerics
-        cs.insert(charactersIn: "-._~")
-        return cs
-    }()
+    // MARK: Form Encoding (nonisolated static for testability)
 
     /// Build form-urlencoded body for token refresh.
     /// Uses strict percent-encoding to prevent token corruption.
-    static func buildRefreshBody(refreshToken: String) -> Data? {
+    nonisolated static func buildRefreshBody(refreshToken: String) -> Data? {
         let pairs: [(String, String)] = [
             ("grant_type", "refresh_token"),
             ("refresh_token", refreshToken),

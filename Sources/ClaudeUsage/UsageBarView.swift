@@ -1,6 +1,18 @@
 import SwiftUI
 import ClaudeUsageKit
 
+/// Map library-level UsageLevel to SwiftUI Color.
+private extension UsageLevel {
+    var color: Color {
+        switch self {
+        case .green: return .green
+        case .yellow: return .yellow
+        case .orange: return .orange
+        case .red: return .red
+        }
+    }
+}
+
 /// A color-coded horizontal progress bar for usage metrics.
 struct UsageBarView: View {
     let label: String
@@ -20,7 +32,7 @@ struct UsageBarView: View {
                             .frame(height: 6)
 
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(usageColor(for: percentage))
+                            .fill(usageLevel(for: percentage).color)
                             .frame(
                                 width: geometry.size.width * min(percentage / 100, 1.0),
                                 height: 6

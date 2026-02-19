@@ -11,11 +11,11 @@ struct ContentView: View {
             Divider()
 
             if let error = service.error, service.usage == nil {
-                errorBanner(error)
+                errorContent(error)
             } else if let usage = service.usage {
                 usageContent(usage)
             } else {
-                loadingView
+                onboardingLoadingView
             }
 
             Divider()
@@ -55,6 +55,83 @@ struct ContentView: View {
             }
             .buttonStyle(.borderless)
         }
+    }
+
+    // MARK: - Error Content (no cached data)
+
+    @ViewBuilder
+    private func errorContent(_ error: UsageError) -> some View {
+        switch error {
+        case .keychain(.notFound):
+            setupGuide
+        case .keychain(.accessDenied):
+            keychainHelpMessage
+        default:
+            errorBanner(error)
+        }
+    }
+
+    // MARK: - Setup Guide (no credentials found)
+
+    private var setupGuide: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "person.crop.circle.badge.questionmark")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text("No Credentials Found")
+                    .font(.headline)
+            }
+
+            Text("Install Claude Code and log in to see your usage:")
+                .font(.callout)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("1. Install Claude Code")
+                    .font(.callout.bold())
+                Text("2. Run `claude login` in your terminal")
+                    .font(.system(.callout, design: .monospaced))
+                Text("3. Relaunch this app")
+                    .font(.callout.bold())
+            }
+            .padding(.leading, 4)
+
+            Button("Reload Credentials") {
+                Task { await service.reloadCredentials() }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(8)
+        .background(.blue.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - Keychain Help (access denied)
+
+    private var keychainHelpMessage: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "lock.shield")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                Text("Keychain Access Denied")
+                    .font(.headline)
+            }
+
+            Text("macOS blocked access to Claude Code credentials.")
+                .font(.callout)
+
+            Text("To fix: re-launch ClaudeUsage and click **\"Always Allow\"** (not just \"Allow\") when the keychain dialog appears.")
+                .font(.callout)
+
+            Button("Retry") {
+                Task { await service.reloadCredentials() }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(8)
+        .background(.orange.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: - Usage Content
@@ -141,17 +218,23 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    // MARK: - Loading
+    // MARK: - Loading (with first-launch onboarding)
 
-    private var loadingView: some View {
-        HStack {
-            ProgressView()
-                .scaleEffect(0.7)
-            Text("Loading usage data...")
+    private var onboardingLoadingView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                ProgressView()
+                    .scaleEffect(0.7)
+                Text("Loading usage data...")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+
+            Text("If a keychain dialog appears, click **\"Always Allow\"** to grant permanent access.")
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Footer
@@ -159,7 +242,7 @@ struct ContentView: View {
     private var footerRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let lastUpdated = service.lastUpdated {
-                Text("Updated \(formatTimeAgo(from: lastUpdated)) ago")
+                Text("Updated \(formatTimeAgo(from: lastUpdated))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

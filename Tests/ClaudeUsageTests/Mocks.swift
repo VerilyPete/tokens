@@ -3,13 +3,27 @@ import Foundation
 
 // MARK: - Mock Keychain Reader
 
-/// Test double for KeychainReading. Returns canned credentials or throws.
+/// Test double for KeychainReading.
+/// Supports sequential results via a FIFO queue for multi-read test scenarios.
 final class MockKeychainReader: KeychainReading, @unchecked Sendable {
-    var result: Result<OAuthCredentials, Error> = .failure(KeychainError.notFound)
+    private var queue: [Result<OAuthCredentials, Error>] = []
     var readCount = 0
+
+    /// Set a single result that is returned on every call.
+    var result: Result<OAuthCredentials, Error> = .failure(KeychainError.notFound) {
+        didSet { queue = [] }  // Clear queue when single result is set
+    }
+
+    /// Enqueue a result for sequential multi-read scenarios.
+    func enqueue(_ result: Result<OAuthCredentials, Error>) {
+        queue.append(result)
+    }
 
     func readCredentials() async throws -> OAuthCredentials {
         readCount += 1
+        if !queue.isEmpty {
+            return try queue.removeFirst().get()
+        }
         return try result.get()
     }
 }
@@ -83,6 +97,26 @@ enum TestData {
       "seven_day": {
         "utilization": 10.0,
         "resets_at": "2026-02-12T15:00:00+00:00"
+      }
+    }
+    """.data(using: .utf8)!
+
+    /// ExtraUsage with actual non-null credit values.
+    static let extraUsageEnabledJSON = """
+    {
+      "five_hour": {
+        "utilization": 80.0,
+        "resets_at": "2026-02-08T05:00:00+00:00"
+      },
+      "seven_day": {
+        "utilization": 60.0,
+        "resets_at": "2026-02-12T15:00:00+00:00"
+      },
+      "extra_usage": {
+        "is_enabled": true,
+        "monthly_limit": 100.0,
+        "used_credits": 12.5,
+        "utilization": 12.5
       }
     }
     """.data(using: .utf8)!

@@ -177,4 +177,55 @@ struct DateFromAPITests {
         let date = Date.fromAPI("not-a-date")
         #expect(date == nil)
     }
+
+    @Test("Parses ISO 8601 with Z shorthand timezone")
+    func parseWithZTimezone() {
+        let date = Date.fromAPI("2026-02-08T05:00:00Z")
+        #expect(date != nil)
+    }
+
+    @Test("Parses ISO 8601 with non-UTC offset")
+    func parseWithNonUTCOffset() {
+        let date = Date.fromAPI("2026-02-08T10:30:00+05:30")
+        #expect(date != nil)
+        // +05:30 offset means 05:00 UTC
+        if let date {
+            let utcDate = Date.fromAPI("2026-02-08T05:00:00+00:00")!
+            #expect(abs(date.timeIntervalSince(utcDate)) < 1)
+        }
+    }
+}
+
+// MARK: - ExtraUsage Decoding
+
+@Suite("ExtraUsage Decoding")
+struct ExtraUsageTests {
+
+    @Test("Decodes ExtraUsage with non-null credit values")
+    func decodeExtraUsageEnabled() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.extraUsageEnabledJSON)
+
+        let extra = try #require(response.extraUsage)
+        #expect(extra.isEnabled == true)
+        #expect(extra.monthlyLimit == 100.0)
+        #expect(extra.usedCredits == 12.5)
+        #expect(extra.utilization == 12.5)
+    }
+
+    @Test("Decodes ExtraUsage with all-null optional fields")
+    func decodeExtraUsageDisabled() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.fullUsageJSON)
+
+        let extra = try #require(response.extraUsage)
+        #expect(extra.isEnabled == false)
+        #expect(extra.monthlyLimit == nil)
+        #expect(extra.usedCredits == nil)
+        #expect(extra.utilization == nil)
+    }
+
+    @Test("Missing extra_usage key decodes as nil")
+    func decodeExtraUsageMissing() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.minimalUsageJSON)
+        #expect(response.extraUsage == nil)
+    }
 }

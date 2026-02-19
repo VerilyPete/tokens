@@ -246,4 +246,192 @@ struct UsageServiceFetchTests {
         #expect(request?.value(forHTTPHeaderField: "anthropic-beta") == "oauth-2025-04-20")
         #expect(request?.value(forHTTPHeaderField: "User-Agent") != nil)
     }
+
+    // Cycle 12j: Proactive refresh when token near-expiry
+    @Test("Triggers proactive refresh when token expires within 15 minutes")
+    @MainActor
+    func proactiveRefresh() async {
+        // Token expires in 10 minutes (< 15 min threshold)
+        let nearExpiryCreds = TestData.mockCredentials(
+            expiresAt: Date(timeIntervalSinceNow: 600)
+        )
+        let (service, _, mockNetwork) = makeService(credentials: nearExpiryCreds)
+
+        // Refresh call: success
+        mockNetwork.enqueue(data: TestData.tokenRefreshJSON, statusCode: 200)
+        // Fetch call: success (after refresh)
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        // Should have made 2 requests: refresh + fetch
+        #expect(mockNetwork.requestHistory.count == 2)
+        // First request should be the refresh (POST)
+        #expect(mockNetwork.requestHistory[0].httpMethod == "POST")
+    }
+
+    // Cycle 12k: Refresh failure falls back to keychain re-read
+    @Test("Falls back to keychain re-read when refresh fails on 401")
+    @MainActor
+    func refreshFailureFallsBackToKeychain() async {
+        let (service, mockKeychain, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+
+        // First fetch: 401
+        mockNetwork.enqueue(data: Data(), statusCode: 401)
+        // Refresh: fails
+        mockNetwork.enqueue(data: Data(), statusCode: 400)
+        // Enqueue fresh credentials for keychain re-read
+        mockKeychain.enqueue(.success(TestData.mockCredentials(accessToken: "fresh-token")))
+        // Retry fetch with fresh credentials: success
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+    }
+
+    // Cycle 12l: 429 triggers transient retry
+    @Test("Retries on 429 with backoff then succeeds")
+    @MainActor
+    func fetch429Retry() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+        service.retryBaseDelay = 0  // No delay in tests
+
+        // First attempt: 429
+        mockNetwork.enqueue(data: Data(), statusCode: 429)
+        // Second attempt: success
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+        // 1 fetch(429) + 1 fetch(200) = 2 requests
+        #expect(mockNetwork.requestHistory.count == 2)
+    }
+
+    // Cycle 12m: 429 exhausts all retries
+    @Test("Sets HTTP error after exhausting all retries on 429")
+    @MainActor
+    func fetch429ExhaustedRetries() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+        service.retryBaseDelay = 0
+
+        // All 4 attempts: 429
+        for _ in 0...3 {
+            mockNetwork.enqueue(data: Data(), statusCode: 429)
+        }
+
+        await service.fetchUsage()
+
+        #expect(service.error == .http(statusCode: 429))
+        // Should have tried 4 times (initial + 3 retries)
+        #expect(mockNetwork.requestHistory.count == 4)
+    }
+
+    // Cycle 12n: 5xx triggers transient retry
+    @Test("Retries on 500 server error then succeeds")
+    @MainActor
+    func fetch500Retry() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+        service.retryBaseDelay = 0
+
+        mockNetwork.enqueue(data: Data(), statusCode: 500)
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+    }
+
+    // Cycle 12o: reloadCredentials clears error and re-fetches
+    @Test("reloadCredentials clears error and fetches fresh")
+    @MainActor
+    func reloadCredentialsClearsError() async {
+        let (service, mockKeychain, mockNetwork) = makeService(
+            keychainError: .notFound
+        )
+
+        // First fetch fails with keychain error
+        await service.fetchUsage()
+        #expect(service.error == .keychain(.notFound))
+
+        // Now keychain has credentials
+        mockKeychain.result = .success(TestData.mockCredentials())
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.reloadCredentials()
+
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+    }
+
+    // Cycle 12p: Network error triggers transient retry
+    @Test("Retries on network error then succeeds")
+    @MainActor
+    func fetchNetworkErrorRetry() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+        service.retryBaseDelay = 0
+
+        mockNetwork.enqueueError(URLError(.timedOut))
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+    }
+
+    // Cycle 12q: Decoding error is not retried
+    @Test("Does not retry on decoding error")
+    @MainActor
+    func fetchDecodingErrorNoRetry() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+        service.retryBaseDelay = 0
+
+        mockNetwork.enqueue(data: "not json".data(using: .utf8)!, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.error == .decodingFailed)
+        // Should only try once (decoding errors are not transient)
+        #expect(mockNetwork.requestHistory.count == 1)
+    }
+
+    // Cycle 12r: Error with cached data shows cached percentage in menu bar
+    @Test("Shows cached data in menu bar label when error occurs after successful fetch")
+    @MainActor
+    func menuBarLabelWithCachedDataOnError() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+
+        // First fetch: success
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+        await service.fetchUsage()
+        #expect(service.menuBarLabel == "37%")
+
+        // Second fetch: 403 error
+        mockNetwork.enqueue(data: Data(), statusCode: 403)
+        await service.fetchUsage()
+
+        // Should still show cached percentage, not "!!"
+        #expect(service.menuBarLabel == "37%")
+        #expect(service.error == .forbidden)
+    }
 }
