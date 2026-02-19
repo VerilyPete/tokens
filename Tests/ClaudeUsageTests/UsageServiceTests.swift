@@ -608,6 +608,40 @@ struct UsageServiceFetchTests {
         #expect(service.usage != nil)
     }
 
+    // Cycle 12w: reloadCredentials while fetch in-flight keeps error visible
+    @Test("reloadCredentials does not clear error when a fetch is in-flight")
+    @MainActor
+    func reloadCredentialsDuringLoadingKeepsError() async {
+        let mockKeychain = MockKeychainReader()
+        mockKeychain.result = .success(TestData.mockCredentials())
+        let holdingNetwork = HoldingNetworkSession()
+
+        let service = UsageService(
+            keychainReader: mockKeychain,
+            networkSession: holdingNetwork
+        )
+
+        // Start a fetch that suspends at the network call
+        let firstFetch = Task { @MainActor in
+            await service.fetchUsage()
+        }
+        await holdingNetwork.waitForRequest()
+        #expect(service.isLoading == true)
+
+        // Simulate a previous error state
+        service.error = .unauthorized
+
+        // Call reloadCredentials while fetch is in-flight
+        await service.reloadCredentials()
+
+        // Error must NOT have been cleared (UI stays consistent)
+        #expect(service.error == .unauthorized)
+
+        // Release the in-flight fetch
+        holdingNetwork.release(data: TestData.fullUsageJSON, statusCode: 200)
+        await firstFetch.value
+    }
+
     // Cycle 12v: subscriptionType updated on 401 keychain re-read
     @Test("Updates subscriptionType when keychain is re-read after 401")
     @MainActor
@@ -711,5 +745,22 @@ struct ErrorDescriptionTests {
     func usageRefreshFailedDescription() {
         let error = UsageError.refreshFailed("HTTP 400")
         #expect(error.errorDescription == "Token refresh failed: HTTP 400")
+    }
+
+    // requiresReauthentication
+
+    @Test("Auth errors require reauthentication")
+    func authErrorsRequireReauth() {
+        #expect(UsageError.unauthorized.requiresReauthentication == true)
+        #expect(UsageError.forbidden.requiresReauthentication == true)
+        #expect(UsageError.refreshFailed("HTTP 400").requiresReauthentication == true)
+        #expect(UsageError.keychain(.notFound).requiresReauthentication == true)
+    }
+
+    @Test("Transient errors do not require reauthentication")
+    func transientErrorsDoNotRequireReauth() {
+        #expect(UsageError.network(URLError(.timedOut)).requiresReauthentication == false)
+        #expect(UsageError.http(statusCode: 500).requiresReauthentication == false)
+        #expect(UsageError.decodingFailed.requiresReauthentication == false)
     }
 }

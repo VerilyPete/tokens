@@ -142,10 +142,14 @@ public final class UsageService {
     // MARK: Manual Actions
 
     /// Force a keychain re-read and immediate fetch.
+    /// Always clears in-memory tokens so the next fetch re-reads the keychain.
+    /// If a fetch is already in-flight, skips clearing the error to avoid a
+    /// misleading state where the error disappears but no new fetch runs.
     public func reloadCredentials() async {
         accessToken = nil
         refreshToken = nil
         tokenExpiresAt = nil
+        guard !isLoading else { return }
         error = nil
         await fetchUsage()
     }

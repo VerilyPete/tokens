@@ -64,4 +64,16 @@ public enum UsageError: Error, LocalizedError, Sendable, Equatable {
         case .refreshFailed(let reason): return "Token refresh failed: \(reason)"
         }
     }
+
+    /// Whether this error indicates credentials are invalid and need to be
+    /// refreshed from the keychain (i.e. the user should run `claude login`).
+    /// Transient errors like network failures keep the existing valid token.
+    public var requiresReauthentication: Bool {
+        switch self {
+        case .unauthorized, .forbidden, .refreshFailed, .keychain:
+            return true
+        case .network, .http, .decodingFailed:
+            return false
+        }
+    }
 }
