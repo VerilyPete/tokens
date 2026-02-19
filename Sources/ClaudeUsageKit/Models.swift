@@ -239,13 +239,13 @@ extension Date {
     /// some macOS configurations, silently interpreting +00:00 offsets using
     /// the system timezone instead of UTC.)
 
-    private static let isoFormatterWithFractional: ISO8601DateFormatter = {
+    private nonisolated(unsafe) static let isoFormatterWithFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
 
-    private static let isoFormatterBasic: ISO8601DateFormatter = {
+    private nonisolated(unsafe) static let isoFormatterBasic: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f
