@@ -17,8 +17,8 @@ struct UsageBucketTests {
         let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
 
         #expect(bucket.utilization == 37.0)
-        // 2026-02-08T04:59:59Z = 1770559199 seconds since epoch
-        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770559199) < 1)
+        // 2026-02-08T04:59:59Z = 1770526799 seconds since epoch
+        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770526799) < 1)
     }
 
     // Cycle 2b: Decode without fractional seconds
@@ -31,8 +31,8 @@ struct UsageBucketTests {
         let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
 
         #expect(bucket.utilization == 50.0)
-        // 2026-02-08T05:00:00Z = 1770559200 seconds since epoch
-        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770559200) < 1)
+        // 2026-02-08T05:00:00Z = 1770526800 seconds since epoch
+        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770526800) < 1)
     }
 
     // Cycle 2c: Reject malformed date
@@ -201,12 +201,19 @@ struct DateFromAPITests {
     func parseWithMicroseconds() {
         let date = Date.fromAPI("2026-02-12T14:59:59.771647+00:00")
         #expect(date != nil)
+        // Verify correct UTC epoch (not shifted by local timezone)
+        if let date {
+            #expect(abs(date.timeIntervalSince1970 - 1770908399.771647) < 0.01)
+        }
     }
 
     @Test("Parses ISO 8601 without fractional seconds")
     func parseWithoutFractional() {
         let date = Date.fromAPI("2026-02-08T05:00:00+00:00")
         #expect(date != nil)
+        if let date {
+            #expect(abs(date.timeIntervalSince1970 - 1770526800) < 1)
+        }
     }
 
     @Test("Returns nil for invalid date strings")
@@ -219,16 +226,18 @@ struct DateFromAPITests {
     func parseWithZTimezone() {
         let date = Date.fromAPI("2026-02-08T05:00:00Z")
         #expect(date != nil)
+        if let date {
+            #expect(abs(date.timeIntervalSince1970 - 1770526800) < 1)
+        }
     }
 
     @Test("Parses ISO 8601 with non-UTC offset")
     func parseWithNonUTCOffset() {
         let date = Date.fromAPI("2026-02-08T10:30:00+05:30")
         #expect(date != nil)
-        // +05:30 offset means 05:00 UTC
+        // +05:30 offset: 10:30 local = 05:00 UTC = epoch 1770526800
         if let date {
-            let utcDate = Date.fromAPI("2026-02-08T05:00:00+00:00")!
-            #expect(abs(date.timeIntervalSince(utcDate)) < 1)
+            #expect(abs(date.timeIntervalSince1970 - 1770526800) < 1)
         }
     }
 }
