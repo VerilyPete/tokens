@@ -76,7 +76,7 @@ public func formatMenuBarLabel(
 ) -> String {
     if let utilization, hasData {
         let pct = Int(utilization)
-        let suffix = pct >= 90 ? "!!" : pct >= 80 ? "!" : ""
+        let suffix = utilization >= 90 ? "!!" : utilization >= 80 ? "!" : ""
         return "\(pct)%\(suffix)"
     }
     if hasError { return "!!" }

@@ -158,6 +158,9 @@ struct MenuBarLabelTests {
         #expect(formatMenuBarLabel(utilization: 80, hasError: false, hasData: true) == "80%!")
         #expect(formatMenuBarLabel(utilization: 85, hasError: false, hasData: true) == "85%!")
         #expect(formatMenuBarLabel(utilization: 89, hasError: false, hasData: true) == "89%!")
+        // Fractional value: suffix uses raw Double (matching usageLevel bar color)
+        #expect(formatMenuBarLabel(utilization: 80.1, hasError: false, hasData: true) == "80%!")
+        #expect(formatMenuBarLabel(utilization: 89.9, hasError: false, hasData: true) == "89%!")
     }
 
     @Test("Shows '!!' suffix for 90%+")
@@ -165,6 +168,8 @@ struct MenuBarLabelTests {
         #expect(formatMenuBarLabel(utilization: 90, hasError: false, hasData: true) == "90%!!")
         #expect(formatMenuBarLabel(utilization: 95, hasError: false, hasData: true) == "95%!!")
         #expect(formatMenuBarLabel(utilization: 100, hasError: false, hasData: true) == "100%!!")
+        // Fractional value just above threshold
+        #expect(formatMenuBarLabel(utilization: 90.1, hasError: false, hasData: true) == "90%!!")
     }
 
     @Test("Shows '--%' before first fetch")

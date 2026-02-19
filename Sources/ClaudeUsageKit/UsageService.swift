@@ -87,6 +87,14 @@ public final class UsageService {
         }
     }
 
+    deinit {
+        pollTask?.cancel()
+        wakeTask?.cancel()
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+    }
+
     // MARK: Polling
 
     public func startPolling() {
@@ -363,7 +371,7 @@ public final class UsageService {
                     return Self.parseVersion(from: output)
                 }
             }
-            if let output = try? Self.runProcess("/bin/sh", arguments: ["-l", "-c", "claude --version"]) {
+            if let output = try? Self.runProcess("/bin/sh", arguments: ["-c", "claude --version"]) {
                 return Self.parseVersion(from: output)
             }
             return nil
