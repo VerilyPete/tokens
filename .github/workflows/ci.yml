@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache SPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/org.swift.swiftpm
+          key: macos-spm-${{ hashFiles('Package.swift') }}
+          restore-keys: macos-spm-
+
+      - name: Build (debug)
+        run: swift build
+
+      - name: Test
+        run: swift test
+        timeout-minutes: 10
+
+      - name: Build release and package .app bundle
+        run: ./build.sh
+
+      - name: Upload .app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeUsage.app
+          path: ClaudeUsage.app/
+          retention-days: 7
