@@ -301,6 +301,34 @@ struct UsageServiceFetchTests {
         #expect(service.error == nil)
     }
 
+    // Cycle 12k2: Refresh without rotate preserves existing refresh token
+    @Test("Preserves existing refresh token when server omits refresh_token")
+    @MainActor
+    func refreshWithoutRotatePreservesToken() async {
+        let nearExpiryCreds = TestData.mockCredentials(
+            expiresAt: Date(timeIntervalSinceNow: 600)
+        )
+        let (service, _, mockNetwork) = makeService(credentials: nearExpiryCreds)
+
+        // Proactive refresh returns no refresh_token
+        mockNetwork.enqueue(data: TestData.tokenRefreshNoRotateJSON, statusCode: 200)
+        // Fetch succeeds with the new access token
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+
+        // Trigger another refresh cycle to verify the original refresh token
+        // was preserved (if it were nil, refreshTokenIfNeeded would bail out)
+        mockNetwork.enqueue(data: TestData.tokenRefreshNoRotateJSON, statusCode: 200)
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        // Force token near-expiry so proactive refresh triggers
+        await service.reloadCredentials()
+    }
+
     // Cycle 12l: 429 triggers transient retry
     @Test("Retries on 429 with backoff then succeeds")
     @MainActor

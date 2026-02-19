@@ -190,6 +190,19 @@ struct TokenRefreshResponseTests {
         #expect(response.expiresIn == 3600)
         #expect(response.refreshToken == "new-refresh-token")
     }
+
+    // Cycle 5b: Decode refresh response without refresh_token (RFC 6749 §6)
+    @Test("Decodes refresh response without refresh_token field")
+    func decodeTokenRefreshWithoutRefreshToken() throws {
+        let response = try JSONDecoder().decode(
+            TokenRefreshResponse.self, from: TestData.tokenRefreshNoRotateJSON
+        )
+
+        #expect(response.accessToken == "new-access-token")
+        #expect(response.tokenType == "Bearer")
+        #expect(response.expiresIn == 3600)
+        #expect(response.refreshToken == nil)
+    }
 }
 
 // MARK: - Date.fromAPI

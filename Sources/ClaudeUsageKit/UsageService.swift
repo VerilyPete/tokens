@@ -45,11 +45,14 @@ public final class UsageService {
     private var accessToken: String?
     private var refreshToken: String?
     private var tokenExpiresAt: Date?
-    private var pollTask: Task<Void, Never>?
-    private var wakeTask: Task<Void, Never>?
+    // nonisolated(unsafe) so deinit can cancel/remove these.
+    // All writes happen from @MainActor-isolated methods; deinit
+    // is the only nonisolated reader (and the final one).
+    private nonisolated(unsafe) var pollTask: Task<Void, Never>?
+    private nonisolated(unsafe) var wakeTask: Task<Void, Never>?
+    private nonisolated(unsafe) var wakeObserver: NSObjectProtocol?
     private var isRefreshing = false
     private(set) var consecutiveFailures = 0
-    private var wakeObserver: NSObjectProtocol?
 
     // MARK: Dependencies (injected for testability)
 
@@ -323,7 +326,9 @@ public final class UsageService {
 
             let tokenResponse = try JSONDecoder().decode(TokenRefreshResponse.self, from: data)
             accessToken = tokenResponse.accessToken
-            refreshToken = tokenResponse.refreshToken
+            if let newRefreshToken = tokenResponse.refreshToken {
+                refreshToken = newRefreshToken
+            }
             tokenExpiresAt = Date(timeIntervalSinceNow: TimeInterval(tokenResponse.expiresIn))
             logger.info("Token refreshed, expires in \(tokenResponse.expiresIn)s")
             return true

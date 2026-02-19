@@ -199,6 +199,15 @@ enum TestData {
     }
     """.data(using: .utf8)!
 
+    /// Token refresh response without refresh_token (permitted by RFC 6749 §6).
+    static let tokenRefreshNoRotateJSON = """
+    {
+      "access_token": "new-access-token",
+      "token_type": "Bearer",
+      "expires_in": 3600
+    }
+    """.data(using: .utf8)!
+
     /// Build a mock OAuthCredentials with sensible defaults.
     static func mockCredentials(
         accessToken: String = "test-access-token",

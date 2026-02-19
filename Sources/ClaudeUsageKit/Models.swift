@@ -98,13 +98,15 @@ public struct ExtraUsage: Codable, Sendable, Equatable {
 // MARK: - Token Refresh Response
 
 /// Response from POST /v1/oauth/token.
+/// Per RFC 6749 §6, the server MAY omit refresh_token in a refresh response;
+/// the client should keep using the existing refresh token when absent.
 public struct TokenRefreshResponse: Sendable, Equatable {
     public let accessToken: String
     public let tokenType: String
     public let expiresIn: Int
-    public let refreshToken: String
+    public let refreshToken: String?
 
-    public init(accessToken: String, tokenType: String, expiresIn: Int, refreshToken: String) {
+    public init(accessToken: String, tokenType: String, expiresIn: Int, refreshToken: String? = nil) {
         self.accessToken = accessToken
         self.tokenType = tokenType
         self.expiresIn = expiresIn
