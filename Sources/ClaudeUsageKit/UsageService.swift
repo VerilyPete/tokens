@@ -28,7 +28,7 @@ public final class UsageService {
     public var usage: UsageResponse?
     public var error: UsageError?
     public var lastUpdated: Date?
-    public var isLoading = false
+    public private(set) var isLoading = false
     public var subscriptionType: String?
 
     /// Menu bar label — computed from current state.

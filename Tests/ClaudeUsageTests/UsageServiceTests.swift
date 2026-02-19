@@ -489,18 +489,34 @@ struct UsageServiceFetchTests {
     @Test("Skips fetch when already loading (concurrent call guard)")
     @MainActor
     func fetchWhileAlreadyLoading() async {
-        let (service, _, mockNetwork) = makeService(
-            credentials: TestData.mockCredentials()
+        let mockKeychain = MockKeychainReader()
+        mockKeychain.result = .success(TestData.mockCredentials())
+        let holdingNetwork = HoldingNetworkSession()
+
+        let service = UsageService(
+            keychainReader: mockKeychain,
+            networkSession: holdingNetwork
         )
 
-        // Simulate an in-flight fetch
-        service.isLoading = true
+        // Start first fetch — it will suspend at the network call
+        let firstFetch = Task { @MainActor in
+            await service.fetchUsage()
+        }
 
-        // This call should be a no-op due to the guard
+        // Wait until the holding mock confirms it received the request
+        await holdingNetwork.waitForRequest()
+        #expect(service.isLoading == true)
+
+        // Second fetch should be a no-op (guard !isLoading)
         await service.fetchUsage()
+        #expect(holdingNetwork.requestCount == 1)
 
-        // No network request should have been made
-        #expect(mockNetwork.requestHistory.count == 0)
+        // Release the first fetch so it completes
+        holdingNetwork.release(data: TestData.fullUsageJSON, statusCode: 200)
+        await firstFetch.value
+
+        #expect(service.isLoading == false)
+        #expect(service.usage != nil)
     }
 
     // Cycle 12v: subscriptionType updated on 401 keychain re-read

@@ -61,6 +61,44 @@ final class MockNetworkSession: NetworkSession, @unchecked Sendable {
     }
 }
 
+// MARK: - Holding Network Session (for concurrency tests)
+
+/// Test double that suspends at the network call until explicitly released.
+/// Used to keep a fetch "in-flight" while verifying the concurrent-fetch guard.
+final class HoldingNetworkSession: NetworkSession, @unchecked Sendable {
+    var requestCount = 0
+    private var requestContinuation: CheckedContinuation<Void, Never>?
+    private var responseContinuation: CheckedContinuation<(Data, URLResponse), Error>?
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requestCount += 1
+        requestContinuation?.resume()
+        requestContinuation = nil
+        return try await withCheckedThrowingContinuation { cont in
+            responseContinuation = cont
+        }
+    }
+
+    /// Suspends until the mock receives a network request.
+    func waitForRequest() async {
+        await withCheckedContinuation { cont in
+            requestContinuation = cont
+        }
+    }
+
+    /// Completes the suspended network call with the given response.
+    func release(data: Data, statusCode: Int) {
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        responseContinuation?.resume(returning: (data, response))
+        responseContinuation = nil
+    }
+}
+
 // MARK: - Test Data Helpers
 
 enum TestData {
