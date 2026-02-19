@@ -507,20 +507,21 @@ struct UsageServiceFetchTests {
     @Test("Updates subscriptionType when keychain is re-read after 401")
     @MainActor
     func subscriptionTypeUpdatedOn401KeychainReread() async {
-        // Initial credentials with "Pro" subscription
-        let (service, mockKeychain, mockNetwork) = makeService(
-            credentials: TestData.mockCredentials(subscriptionType: "Pro")
-        )
+        // Use explicit queue so first read returns Pro, second returns Max
+        let (service, mockKeychain, mockNetwork) = makeService()
+
+        // First keychain read (token init): Pro subscription
+        mockKeychain.enqueue(.success(TestData.mockCredentials(subscriptionType: "Pro")))
+        // Second keychain read (401 fallback): Max subscription
+        mockKeychain.enqueue(.success(TestData.mockCredentials(
+            accessToken: "fresh-token",
+            subscriptionType: "Max"
+        )))
 
         // First fetch: 401
         mockNetwork.enqueue(data: Data(), statusCode: 401)
         // Refresh: fails
         mockNetwork.enqueue(data: Data(), statusCode: 400)
-        // Keychain re-read returns "Max" subscription
-        mockKeychain.enqueue(.success(TestData.mockCredentials(
-            accessToken: "fresh-token",
-            subscriptionType: "Max"
-        )))
         // Retry fetch: success
         mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
 

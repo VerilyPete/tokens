@@ -232,8 +232,24 @@ extension Date {
     /// Parse ISO 8601 with fractional seconds; fall back to without.
     /// Uses Date.ISO8601FormatStyle which is Sendable (unlike ISO8601DateFormatter).
     public static func fromAPI(_ string: String) -> Date? {
-        if let date = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-            .parse(string) {
+        // API returns timezone offsets with colon separator (+00:00), so we
+        // must specify .colon — the default (.omitted) expects +0000 and
+        // silently falls back to the local timezone on mismatch.
+        if let date = try? Date.ISO8601FormatStyle(
+            timeZoneSeparator: .colon,
+            includingFractionalSeconds: true
+        ).parse(string) {
+            return date
+        }
+        if let date = try? Date.ISO8601FormatStyle(
+            timeZoneSeparator: .colon
+        ).parse(string) {
+            return date
+        }
+        // Fallback for Z-suffix or +0000 style offsets
+        if let date = try? Date.ISO8601FormatStyle(
+            includingFractionalSeconds: true
+        ).parse(string) {
             return date
         }
         return try? Date.ISO8601FormatStyle().parse(string)

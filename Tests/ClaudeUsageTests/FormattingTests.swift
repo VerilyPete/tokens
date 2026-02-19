@@ -100,9 +100,9 @@ struct ResetTimeDateTests {
     @Test("Formats future date as reset time")
     func futureDate() {
         let now = Date()
-        let future = now.addingTimeInterval(3600) // 1 hour from now
+        let future = now.addingTimeInterval(5400) // 90 min from now
         let result = formatResetTime(from: future, now: now)
-        #expect(result == "1h 0m")
+        #expect(result == "1h 30m")
     }
 
     @Test("Returns 'now' for past date")
