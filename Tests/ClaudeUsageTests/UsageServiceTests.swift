@@ -291,6 +291,61 @@ struct UsageServiceFetchTests {
         #expect(mockNetwork.requestHistory[0].httpMethod == "POST")
     }
 
+    // Cycle 12j2: expires_in: 0 gets floored to 60s
+    @Test("Floors expires_in to 60 seconds to prevent refresh loop")
+    @MainActor
+    func expiresInZeroFloored() async {
+        let nearExpiryCreds = TestData.mockCredentials(
+            expiresAt: Date(timeIntervalSinceNow: 600)
+        )
+        let (service, _, mockNetwork) = makeService(credentials: nearExpiryCreds)
+
+        // Proactive refresh returns expires_in: 0
+        mockNetwork.enqueue(data: TestData.tokenRefreshZeroExpiryJSON, statusCode: 200)
+        // Fetch succeeds
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        // Verify that the second fetch still works (refresh + fetch completed)
+        #expect(mockNetwork.requestHistory.count == 2)
+        #expect(mockNetwork.requestHistory[0].httpMethod == "POST") // refresh
+
+        // The key invariant: even with expires_in: 0, we should be able to
+        // do another fetch. Without the floor, tokenExpiresAt would be
+        // in the past immediately, causing perpetual refresh attempts.
+        // With the floor of 60s, at least we have a 60s window.
+        mockNetwork.enqueue(data: TestData.tokenRefreshZeroExpiryJSON, statusCode: 200)
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+        await service.fetchUsage()
+
+        // Service still works (no infinite loop or crash)
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+    }
+
+    // Cycle 12j3: Proactive refresh failure does NOT set error
+    @Test("Proactive refresh failure does not set error on service")
+    @MainActor
+    func proactiveRefreshFailureNoError() async {
+        let nearExpiryCreds = TestData.mockCredentials(
+            expiresAt: Date(timeIntervalSinceNow: 600)
+        )
+        let (service, _, mockNetwork) = makeService(credentials: nearExpiryCreds)
+
+        // Proactive refresh fails
+        mockNetwork.enqueue(data: Data(), statusCode: 400)
+        // Fetch still succeeds (token was still valid)
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        // Error should be nil — the refresh failure should not leak
+        #expect(service.error == nil)
+        #expect(service.usage != nil)
+    }
+
     // Cycle 12k: Refresh failure falls back to keychain re-read
     @Test("Falls back to keychain re-read when refresh fails on 401")
     @MainActor

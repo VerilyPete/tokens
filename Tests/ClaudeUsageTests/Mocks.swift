@@ -208,6 +208,16 @@ enum TestData {
     }
     """.data(using: .utf8)!
 
+    /// Token refresh response with expires_in: 0 (edge case).
+    static let tokenRefreshZeroExpiryJSON = """
+    {
+      "access_token": "new-access-token",
+      "token_type": "Bearer",
+      "expires_in": 0,
+      "refresh_token": "new-refresh-token"
+    }
+    """.data(using: .utf8)!
+
     /// Build a mock OAuthCredentials with sensible defaults.
     static func mockCredentials(
         accessToken: String = "test-access-token",

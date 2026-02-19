@@ -326,7 +326,6 @@ public final class UsageService {
                   httpResponse.statusCode == 200 else {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 logger.error("Token refresh failed: HTTP \(code)")
-                error = .refreshFailed("HTTP \(code)")
                 return false
             }
 
@@ -335,12 +334,12 @@ public final class UsageService {
             if let newRefreshToken = tokenResponse.refreshToken {
                 refreshToken = newRefreshToken
             }
-            tokenExpiresAt = Date(timeIntervalSinceNow: TimeInterval(tokenResponse.expiresIn))
-            logger.info("Token refreshed, expires in \(tokenResponse.expiresIn)s")
+            let expiresIn = max(tokenResponse.expiresIn, 60)
+            tokenExpiresAt = Date(timeIntervalSinceNow: TimeInterval(expiresIn))
+            logger.info("Token refreshed, expires in \(expiresIn)s")
             return true
         } catch {
             logger.error("Token refresh error: \(error.localizedDescription)")
-            self.error = .refreshFailed(error.localizedDescription)
             return false
         }
     }
@@ -393,9 +392,15 @@ public final class UsageService {
         }
     }
 
+    /// Errors specific to version-detection subprocess execution.
+    private enum ProcessError: Error {
+        case timeout
+        case nonZeroExit(Int32)
+    }
+
     /// Run a process synchronously and return its stdout.
     /// Must be nonisolated static since it's called from Task.detached.
-    /// Terminates the child process and throws `.processTimeout` if it does
+    /// Terminates the child process and throws `.timeout` if it does
     /// not exit within `processTimeoutSeconds`.
     private nonisolated static let processTimeoutSeconds: Double = 10
 
@@ -419,11 +424,11 @@ public final class UsageService {
         if exited.wait(timeout: deadline) == .timedOut {
             process.terminate()
             _ = exited.wait(timeout: .now() + 1)
-            throw KeychainError.processTimeout
+            throw ProcessError.timeout
         }
 
         guard process.terminationStatus == 0 else {
-            throw KeychainError.processError(process.terminationStatus)
+            throw ProcessError.nonZeroExit(process.terminationStatus)
         }
         return String(data: data, encoding: .utf8) ?? ""
     }

@@ -193,6 +193,10 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
+            } else {
+                Text("Enabled — no charges yet")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
         }
     }

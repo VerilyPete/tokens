@@ -68,6 +68,27 @@ struct UsageBucketTests {
         let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
         #expect(bucket.utilization == 100.0)
     }
+
+    // Cycle 2f: Programmatic init clamps negative utilization
+    @Test("Programmatic init clamps negative utilization to 0")
+    func programmaticInitClampsNegative() {
+        let bucket = UsageBucket(utilization: -10.0, resetsAt: Date())
+        #expect(bucket.utilization == 0.0)
+    }
+
+    // Cycle 2g: Programmatic init clamps utilization above 100
+    @Test("Programmatic init clamps utilization above 100 to 100")
+    func programmaticInitClampsOver100() {
+        let bucket = UsageBucket(utilization: 200.0, resetsAt: Date())
+        #expect(bucket.utilization == 100.0)
+    }
+
+    // Cycle 2h: Programmatic init preserves valid utilization
+    @Test("Programmatic init preserves valid utilization unchanged")
+    func programmaticInitPreservesValid() {
+        let bucket = UsageBucket(utilization: 42.5, resetsAt: Date())
+        #expect(bucket.utilization == 42.5)
+    }
 }
 
 // MARK: - Phase 3: UsageResponse

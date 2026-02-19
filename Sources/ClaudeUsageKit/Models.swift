@@ -8,7 +8,7 @@ public struct UsageBucket: Codable, Sendable, Equatable {
     public let resetsAt: Date
 
     public init(utilization: Double, resetsAt: Date) {
-        self.utilization = utilization
+        self.utilization = max(0.0, min(utilization, 100.0))
         self.resetsAt = resetsAt
     }
 
@@ -238,13 +238,21 @@ extension Date {
     /// (Date.ISO8601FormatStyle's timeZoneSeparator proved unreliable on
     /// some macOS configurations, silently interpreting +00:00 offsets using
     /// the system timezone instead of UTC.)
+
+    private static let isoFormatterWithFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoFormatterBasic: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
     public static func fromAPI(_ string: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: string) {
-            return date
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: string)
+        isoFormatterWithFractional.date(from: string)
+            ?? isoFormatterBasic.date(from: string)
     }
 }
