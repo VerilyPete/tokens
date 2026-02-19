@@ -158,15 +158,15 @@ struct UsageServiceFetchTests {
         let (service, _, mockNetwork) = makeService(
             credentials: TestData.mockCredentials()
         )
-        mockNetwork.enqueueError(URLError(.notConnectedToInternet))
+        service.retryBaseDelay = 0
+        // Enqueue 4 network errors to exhaust retries
+        for _ in 0...3 {
+            mockNetwork.enqueueError(URLError(.notConnectedToInternet))
+        }
 
         await service.fetchUsage()
 
-        if case .network = service.error {
-            // Expected
-        } else {
-            Issue.record("Expected .network error, got \(String(describing: service.error))")
-        }
+        #expect(service.error == .network(URLError(.notConnectedToInternet)))
     }
 
     // Cycle 12e: Keychain error propagates
@@ -177,11 +177,7 @@ struct UsageServiceFetchTests {
 
         await service.fetchUsage()
 
-        if case .keychain(.notFound) = service.error {
-            // Expected
-        } else {
-            Issue.record("Expected .keychain(.notFound) error, got \(String(describing: service.error))")
-        }
+        #expect(service.error == .keychain(.notFound))
     }
 
     // Cycle 12f: Menu bar label reflects state
@@ -244,7 +240,7 @@ struct UsageServiceFetchTests {
         let request = mockNetwork.requestHistory.first
         #expect(request?.value(forHTTPHeaderField: "Authorization") == "Bearer my-token")
         #expect(request?.value(forHTTPHeaderField: "anthropic-beta") == "oauth-2025-04-20")
-        #expect(request?.value(forHTTPHeaderField: "User-Agent") != nil)
+        #expect(request?.value(forHTTPHeaderField: "User-Agent") == "claude-code/0.0.0")
     }
 
     // Cycle 12j: Proactive refresh when token near-expiry
@@ -433,5 +429,114 @@ struct UsageServiceFetchTests {
         // Should still show cached percentage, not "!!"
         #expect(service.menuBarLabel == "37%")
         #expect(service.error == .forbidden)
+    }
+
+    // Cycle 12s: isLoading transitions
+    @Test("isLoading is true during fetch and false after")
+    @MainActor
+    func isLoadingTransitions() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+
+        // Before fetch
+        #expect(service.isLoading == false)
+
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+        await service.fetchUsage()
+
+        // After fetch
+        #expect(service.isLoading == false)
+    }
+
+    // Cycle 12t: consecutiveFailures increments and resets
+    @Test("consecutiveFailures increments on error and resets on success")
+    @MainActor
+    func consecutiveFailuresTracking() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+        service.retryBaseDelay = 0
+
+        // First fetch: 403 error
+        mockNetwork.enqueue(data: Data(), statusCode: 403)
+        await service.fetchUsage()
+        #expect(service.consecutiveFailures == 1)
+
+        // Second fetch: 403 error
+        mockNetwork.enqueue(data: Data(), statusCode: 403)
+        await service.fetchUsage()
+        #expect(service.consecutiveFailures == 2)
+
+        // Third fetch: success — resets counter
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+        await service.fetchUsage()
+        #expect(service.consecutiveFailures == 0)
+    }
+}
+
+// MARK: - Error Description Tests
+
+@Suite("Error descriptions")
+struct ErrorDescriptionTests {
+
+    @Test("KeychainError.notFound has descriptive message")
+    func keychainNotFoundDescription() {
+        let error = KeychainError.notFound
+        #expect(error.errorDescription == "No Claude Code credentials found. Run `claude login` in your terminal.")
+    }
+
+    @Test("KeychainError.accessDenied has descriptive message")
+    func keychainAccessDeniedDescription() {
+        let error = KeychainError.accessDenied
+        #expect(error.errorDescription == "Keychain access denied. Re-launch and click \"Always Allow\" when prompted.")
+    }
+
+    @Test("KeychainError.malformedJSON has descriptive message")
+    func keychainMalformedDescription() {
+        let error = KeychainError.malformedJSON
+        #expect(error.errorDescription == "Credential data is corrupted. Try running `claude login` again.")
+    }
+
+    @Test("KeychainError.processError includes exit code")
+    func keychainProcessErrorDescription() {
+        let error = KeychainError.processError(44)
+        #expect(error.errorDescription == "Keychain read failed (exit code 44).")
+    }
+
+    @Test("UsageError.network has descriptive message")
+    func usageNetworkDescription() {
+        let error = UsageError.network(URLError(.notConnectedToInternet))
+        #expect(error.errorDescription == "Network error. Check your internet connection.")
+    }
+
+    @Test("UsageError.http includes status code")
+    func usageHttpDescription() {
+        let error = UsageError.http(statusCode: 500)
+        #expect(error.errorDescription == "Server returned HTTP 500.")
+    }
+
+    @Test("UsageError.unauthorized has descriptive message")
+    func usageUnauthorizedDescription() {
+        let error = UsageError.unauthorized
+        #expect(error.errorDescription == "Session expired. Run `claude login` in your terminal.")
+    }
+
+    @Test("UsageError.forbidden has descriptive message")
+    func usageForbiddenDescription() {
+        let error = UsageError.forbidden
+        #expect(error.errorDescription == "Missing permissions. Run `claude login` (not `setup-token`).")
+    }
+
+    @Test("UsageError.decodingFailed has descriptive message")
+    func usageDecodingDescription() {
+        let error = UsageError.decodingFailed
+        #expect(error.errorDescription == "Unexpected API response format.")
+    }
+
+    @Test("UsageError.refreshFailed includes reason")
+    func usageRefreshFailedDescription() {
+        let error = UsageError.refreshFailed("HTTP 400")
+        #expect(error.errorDescription == "Token refresh failed: HTTP 400")
     }
 }

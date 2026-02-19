@@ -46,8 +46,9 @@ public final class UsageService {
     private var refreshToken: String?
     private var tokenExpiresAt: Date?
     private var pollTask: Task<Void, Never>?
+    private var wakeTask: Task<Void, Never>?
     private var isRefreshing = false
-    private var consecutiveFailures = 0
+    private(set) var consecutiveFailures = 0
     private var wakeObserver: NSObjectProtocol?
 
     // MARK: Dependencies (injected for testability)
@@ -106,8 +107,10 @@ public final class UsageService {
             object: nil, queue: .main
         ) { [weak self] _ in
             logger.info("System wake detected, scheduling refresh")
-            Task { @MainActor [weak self] in
+            self?.wakeTask?.cancel()
+            self?.wakeTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
                 await self?.fetchUsage()
             }
         }
@@ -116,6 +119,8 @@ public final class UsageService {
     public func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
+        wakeTask?.cancel()
+        wakeTask = nil
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
             self.wakeObserver = nil
@@ -175,15 +180,18 @@ public final class UsageService {
         }
 
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
+        request.timeoutInterval = 30
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(betaHeaderValue, forHTTPHeaderField: "anthropic-beta")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
 
         // Retry loop: up to 4 attempts (initial + 3 retries) for transient errors
         for attempt in 0...3 {
+            guard !Task.isCancelled else { return }
             if attempt > 0 {
                 let delay = retryBaseDelay * Double(1 << (attempt - 1))  // 2, 4, 8
                 try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
             }
 
             do {
@@ -283,6 +291,7 @@ public final class UsageService {
         }
 
         var request = URLRequest(url: URL(string: "https://console.anthropic.com/v1/oauth/token")!)
+        request.timeoutInterval = 30
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")

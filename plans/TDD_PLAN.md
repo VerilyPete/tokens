@@ -38,7 +38,7 @@ tokens/
 ├── Sources/
 │   ├── ClaudeUsageKit/                    # LIBRARY TARGET (testable)
 │   │   ├── Models.swift                   # Codable structs, Date.fromAPI, FlexibleCodingKey
-│   │   ├── Protocols.swift                # KeychainReading, NetworkSession
+│   │   ├── Protocols.swift                # KeychainReading, NetworkSession, KeychainError, UsageError
 │   │   ├── KeychainReader.swift           # Concrete keychain via security CLI
 │   │   ├── UsageService.swift             # @MainActor @Observable service
 │   │   └── Formatting.swift               # UsageLevel enum, time formatting, menu bar label (pure functions)
@@ -144,10 +144,16 @@ GREEN: decodeFirstMatch tries both variants — should pass
 **Cycle 4c: Epoch milliseconds to Date**
 ```
 RED:   testCredentialsExpiresAtConversion — verify expiresAt Date equals expected value
-GREEN: Convert ms → Date in init(from:): Date(timeIntervalSince1970: ms / 1000.0)
+GREEN: Convert ms → Date in init(from:) using heuristic: > 1 trillion → ms, else → seconds
 ```
 
-**Cycle 4d: Optional fields**
+**Cycle 4d: Epoch seconds heuristic**
+```
+RED:   testCredentialsExpiresAtSeconds — expiresAt: 1770559200 (seconds) parses correctly
+GREEN: Heuristic detects 10-digit timestamps as seconds, skips /1000 division
+```
+
+**Cycle 4e: Optional fields**
 ```
 RED:   testCredentialsOptionalFields — subscriptionType and rateLimitTier absent
 GREEN: Use try? for optional fields
@@ -160,26 +166,26 @@ GREEN: Use try? for optional fields
 **Cycle 5a: Decode refresh response**
 ```
 RED:   testDecodeTokenRefreshResponse — {"access_token":"new","token_type":"Bearer","expires_in":3600,"refresh_token":"newref"}
-GREEN: Implement TokenRefreshResponse, decode with .convertFromSnakeCase
+GREEN: Implement TokenRefreshResponse with explicit CodingKeys for snake_case mapping
 ```
 
 ---
 
-### Phase 5b: Models — `ExtraUsage`
+### Phase 5.5: Models — `ExtraUsage`
 
-**Cycle 5b-a: Decode ExtraUsage with non-null credit values**
+**Cycle 5.5a: Decode ExtraUsage with non-null credit values**
 ```
 RED:   testDecodeExtraUsageEnabled — is_enabled: true, monthly_limit: 100, used_credits: 12.5, utilization: 12.5
 GREEN: ExtraUsage struct with snake_case CodingKeys already handles this
 ```
 
-**Cycle 5b-b: Decode ExtraUsage with all-null optional fields**
+**Cycle 5.5b: Decode ExtraUsage with all-null optional fields**
 ```
 RED:   testDecodeExtraUsageDisabled — is_enabled: false, all others null
 GREEN: Optional fields decode as nil via decodeIfPresent
 ```
 
-**Cycle 5b-c: Missing extra_usage key**
+**Cycle 5.5c: Missing extra_usage key**
 ```
 RED:   testDecodeExtraUsageMissing — minimal JSON without extra_usage key → nil
 GREEN: UsageResponse.extraUsage is Optional, decodeIfPresent returns nil
@@ -367,6 +373,12 @@ RED:   testFormEncodeSpecialChars — token with +/= gets percent-encoded
 GREEN: Use strict allowed character set (alphanumerics + -._~)
 ```
 
+**Cycle 10c: Base64-style tokens**
+```
+RED:   testFormEncodeBase64Token — token "abc123+xyz/end==" encodes correctly
+GREEN: Already handled by strict percent-encoding
+```
+
 ---
 
 ### Phase 11: UsageService — Version Parsing
@@ -381,6 +393,12 @@ GREEN: Implement parseVersion with regex
 ```
 RED:   testParseVersionNoMatch — "some other output" → nil
 GREEN: Return nil on no match
+```
+
+**Cycle 11c: Version with extra text**
+```
+RED:   testParseVersionExtraText — "Claude Code v0.3.17 (some extra info)" → "0.3.17"
+GREEN: Regex captures first version match regardless of trailing text
 ```
 
 ---
@@ -495,6 +513,37 @@ RED:   testMenuBarLabelWithCachedDataOnError — success then 403 → menuBarLab
 GREEN: formatMenuBarLabel prioritizes utilization when hasData is true
 ```
 
+**Cycle 12s: isLoading transitions**
+```
+RED:   testIsLoadingTransitions — isLoading false before fetch, false after fetch completes
+GREEN: fetchUsage sets isLoading = true on entry, defer { isLoading = false }
+```
+
+**Cycle 12t: consecutiveFailures increments and resets**
+```
+RED:   testConsecutiveFailuresTracking — increments on 403, resets to 0 on success
+GREEN: consecutiveFailures += 1 on error paths, = 0 on 200 success
+```
+
+---
+
+### Phase 12.5: Error Description Strings
+
+**Cycle 12.5a–j: Verify all errorDescription strings**
+```
+RED:   testKeychainNotFoundDescription — KeychainError.notFound.errorDescription matches expected string
+       testKeychainAccessDeniedDescription — .accessDenied
+       testKeychainMalformedDescription — .malformedJSON
+       testKeychainProcessErrorDescription — .processError(44)
+       testUsageNetworkDescription — UsageError.network(...)
+       testUsageHttpDescription — .http(statusCode: 500)
+       testUsageUnauthorizedDescription — .unauthorized
+       testUsageForbiddenDescription — .forbidden
+       testUsageDecodingDescription — .decodingFailed
+       testUsageRefreshFailedDescription — .refreshFailed("HTTP 400")
+GREEN: All error enums already have errorDescription — tests verify no regressions
+```
+
 ---
 
 ### Phase 13: SwiftUI Views (Limited TDD)
@@ -502,7 +551,7 @@ GREEN: formatMenuBarLabel prioritizes utilization when hasData is true
 Views are not unit-tested via XCTest — they're verified visually. But the logic they depend on (colors, formatting, labels) is already fully tested in Phases 7–9.
 
 Implement in order:
-1. `UsageBarView.swift` — uses `usageColor(for:)` and `formatResetTime` from `Formatting.swift`
+1. `UsageBarView.swift` — uses `usageLevel(for:)` and `formatResetTime` from `Formatting.swift`
 2. `ContentView.swift` — uses `UsageService` (injected)
 3. `ClaudeUsageApp.swift` — `@main`, creates service, wires up `MenuBarExtra`
 
@@ -519,11 +568,11 @@ Implement in order:
 
 | Test File | # Tests | What's Covered |
 |---|---|---|
-| `ModelsTests.swift` | 18 | UsageBucket (3), UsageResponse (2), OAuthCredentials (4), TokenRefreshResponse (1), Date.fromAPI (5), ExtraUsage (3) |
+| `ModelsTests.swift` | 19 | UsageBucket (3), UsageResponse (2), OAuthCredentials (5), TokenRefreshResponse (1), Date.fromAPI (5), ExtraUsage (3) |
 | `KeychainParsingTests.swift` | 5 | Wrapped/bare format, malformed JSON, whitespace, snake_case in wrapper |
-| `FormattingTests.swift` | 18 | UsageLevel thresholds (6), reset time (5), time ago (3), menu bar label (4) |
-| `UsageServiceTests.swift` | 21 | Form encoding (3), version parsing (3), fetch flow (15): success, 401+refresh, 403, network, keychain, menuBarLabel, subscriptionType, decoding, headers, proactive refresh, refresh fallback, 429 retry, 429 exhausted, 500 retry, reload, network retry, decoding no-retry, cached label on error |
-| **Total** | **62** | All business logic |
+| `FormattingTests.swift` | 22 | UsageLevel thresholds (6), reset time (5), reset time from Date (2), time ago (3), menu bar label (6) |
+| `UsageServiceTests.swift` | 36 | Form encoding (3), version parsing (3), fetch flow (20: 12a–12t), error descriptions (10) |
+| **Total** | **82** | All business logic + error messages |
 
 ---
 
@@ -541,10 +590,16 @@ swift test --filter testFetchSuccess # Run one test
 
 1. **Protocol-based DI over mocking frameworks** — No third-party mock libraries. Simple protocol conformances with closures or stored responses.
 
-2. **Pure functions for formatting** — `usageColor(for:)`, `formatResetTime(seconds:)`, and `formatMenuBarLabel(...)` are free functions, not methods. Easy to test without any object setup.
+2. **Pure functions for formatting** — `usageLevel(for:)`, `formatResetTime(seconds:)`, `formatTimeAgo(from:)`, and `formatMenuBarLabel(...)` are free functions, not methods. Easy to test without any object setup.
 
 3. **`parseCredentials(from:)` made `internal`** — The keychain parsing logic is exposed at `internal` visibility so tests can call it directly with test data, without needing a real keychain.
 
 4. **`parseVersion(from:)` and `buildRefreshBody(refreshToken:)` made `internal static`** — Extracted as static methods so they can be tested without constructing a full `UsageService`.
 
 5. **Library/executable split** — `@testable import ClaudeUsageKit` works because it's a library target. The executable target is just 3 view files that import the library.
+
+6. **Intentionally untested I/O boundaries** — The following code paths require real system access and are not unit-tested:
+   - `KeychainReader.readCredentials()` and `runSecurityCLI()` — require real macOS Keychain
+   - `detectClaudeVersion()` and `runProcess()` — require real filesystem with `claude` binary
+   - `startPolling()` / `stopPolling()` lifecycle — involves `NSWorkspace` wake notifications
+   - These are kept as thin wrappers over system APIs, with all parseable logic (`parseCredentials`, `parseVersion`) extracted as testable static methods.

@@ -23,7 +23,6 @@ public enum KeychainError: Error, LocalizedError, Sendable, Equatable {
     case notFound
     case accessDenied
     case malformedJSON
-    case missingToken
     case processError(Int32)
 
     public var errorDescription: String? {
@@ -34,8 +33,6 @@ public enum KeychainError: Error, LocalizedError, Sendable, Equatable {
             return "Keychain access denied. Re-launch and click \"Always Allow\" when prompted."
         case .malformedJSON:
             return "Credential data is corrupted. Try running `claude login` again."
-        case .missingToken:
-            return "Credentials are missing the access token. Try running `claude login` again."
         case .processError(let code):
             return "Keychain read failed (exit code \(code))."
         }

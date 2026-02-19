@@ -157,10 +157,16 @@ extension OAuthCredentials: Decodable {
             String.self, keys: ["refreshToken", "refresh_token"]
         )
 
-        let expiresAtMs = try container.decodeFirstMatch(
+        // Claude Code stores timestamps as JavaScript epoch (milliseconds).
+        // Heuristic: values > 1 trillion are milliseconds; smaller values are seconds.
+        let expiresAtRaw = try container.decodeFirstMatch(
             Double.self, keys: ["expiresAt", "expires_at"]
         )
-        expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000.0)
+        if expiresAtRaw > 1_000_000_000_000 {
+            expiresAt = Date(timeIntervalSince1970: expiresAtRaw / 1000.0)
+        } else {
+            expiresAt = Date(timeIntervalSince1970: expiresAtRaw)
+        }
 
         subscriptionType = try? container.decodeFirstMatch(
             String.self, keys: ["subscriptionType", "subscription_type"]
@@ -191,15 +197,24 @@ public struct FlexibleCodingKey: CodingKey {
 
 extension KeyedDecodingContainer where Key == FlexibleCodingKey {
     /// Try decoding a value using multiple possible key names, in order.
-    /// Throws if none of the keys are present.
+    /// Throws the underlying error if a key is found but has the wrong type,
+    /// or `keyNotFound` if none of the keys are present.
     public func decodeFirstMatch<T: Decodable>(
         _ type: T.Type, keys: [String]
     ) throws -> T {
+        var lastTypeMismatch: Error?
         for keyName in keys {
             let key = FlexibleCodingKey(stringValue: keyName)
-            if let value = try? decode(type, forKey: key) {
-                return value
+            if contains(key) {
+                do {
+                    return try decode(type, forKey: key)
+                } catch {
+                    lastTypeMismatch = error
+                }
             }
+        }
+        if let lastTypeMismatch {
+            throw lastTypeMismatch
         }
         throw DecodingError.keyNotFound(
             FlexibleCodingKey(stringValue: keys.first ?? "unknown"),

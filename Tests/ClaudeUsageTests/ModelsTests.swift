@@ -17,7 +17,8 @@ struct UsageBucketTests {
         let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
 
         #expect(bucket.utilization == 37.0)
-        #expect(bucket.resetsAt.timeIntervalSince1970 > 0)
+        // 2026-02-08T04:59:59Z = 1770559199 seconds since epoch
+        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770559199) < 1)
     }
 
     // Cycle 2b: Decode without fractional seconds
@@ -30,7 +31,8 @@ struct UsageBucketTests {
         let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
 
         #expect(bucket.utilization == 50.0)
-        #expect(bucket.resetsAt.timeIntervalSince1970 > 0)
+        // 2026-02-08T05:00:00Z = 1770559200 seconds since epoch
+        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770559200) < 1)
     }
 
     // Cycle 2c: Reject malformed date
@@ -121,7 +123,21 @@ struct OAuthCredentialsTests {
         #expect(abs(creds.expiresAt.timeIntervalSince(expectedDate)) < 0.001)
     }
 
-    // Cycle 4d: Optional fields absent
+    // Cycle 4d: expiresAt seconds (Unix timestamp) heuristic
+    @Test("Handles expiresAt in seconds (not milliseconds)")
+    func credentialsExpiresAtSeconds() throws {
+        let json = """
+        {"accessToken": "tok", "refreshToken": "ref", "expiresAt": 1770559200}
+        """.data(using: .utf8)!
+
+        let creds = try JSONDecoder().decode(OAuthCredentials.self, from: json)
+
+        // 1770559200 is in seconds (10 digits) — should NOT divide by 1000
+        let expectedDate = Date(timeIntervalSince1970: 1770559200)
+        #expect(abs(creds.expiresAt.timeIntervalSince(expectedDate)) < 0.001)
+    }
+
+    // Cycle 4e: Optional fields absent
     @Test("Handles missing optional fields gracefully")
     func credentialsOptionalFields() throws {
         let json = """
