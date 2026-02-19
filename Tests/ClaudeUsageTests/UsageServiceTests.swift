@@ -191,6 +191,19 @@ struct UsageServiceFetchTests {
         #expect(service.error == .keychain(.notFound))
     }
 
+    // Cycle 12e2: Keychain error increments consecutiveFailures
+    @Test("Keychain error increments consecutiveFailures for polling backoff")
+    @MainActor
+    func keychainErrorIncrementsConsecutiveFailures() async {
+        let (service, _, _) = makeService(keychainError: .notFound)
+
+        await service.fetchUsage()
+        #expect(service.consecutiveFailures == 1)
+
+        await service.fetchUsage()
+        #expect(service.consecutiveFailures == 2)
+    }
+
     // Cycle 12f: Menu bar label reflects state
     @Test("menuBarLabel updates based on fetched usage")
     @MainActor
@@ -327,6 +340,27 @@ struct UsageServiceFetchTests {
 
         // Force token near-expiry so proactive refresh triggers
         await service.reloadCredentials()
+    }
+
+    // Cycle 12k3: 401 fallback keychain error preserves typed error
+    @Test("401 fallback preserves KeychainError instead of masking as unauthorized")
+    @MainActor
+    func refreshFallbackKeychainErrorPreserved() async {
+        let (service, mockKeychain, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+
+        // First fetch: 401
+        mockNetwork.enqueue(data: Data(), statusCode: 401)
+        // Refresh: fails
+        mockNetwork.enqueue(data: Data(), statusCode: 400)
+        // Keychain re-read: fails with notFound
+        mockKeychain.enqueue(.failure(.notFound))
+
+        await service.fetchUsage()
+
+        #expect(service.error == .keychain(.notFound))
+        #expect(service.consecutiveFailures == 1)
     }
 
     // Cycle 12l: 429 triggers transient retry
@@ -603,6 +637,17 @@ struct ErrorDescriptionTests {
     func keychainProcessErrorDescription() {
         let error = KeychainError.processError(44)
         #expect(error.errorDescription == "Keychain read failed (exit code 44).")
+    }
+
+    @Test("KeychainError.processTimeout has descriptive message")
+    func keychainProcessTimeoutDescription() {
+        let error = KeychainError.processTimeout
+        #expect(error.errorDescription == "Keychain read timed out. The security process may be unresponsive.")
+    }
+
+    @Test("Process timeout constant is 10 seconds")
+    func processTimeoutConstant() {
+        #expect(KeychainReader.processTimeoutSeconds == 10)
     }
 
     @Test("UsageError.network has descriptive message")

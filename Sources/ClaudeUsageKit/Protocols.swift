@@ -24,6 +24,7 @@ public enum KeychainError: Error, LocalizedError, Sendable, Equatable {
     case accessDenied
     case malformedJSON
     case processError(Int32)
+    case processTimeout
 
     public var errorDescription: String? {
         switch self {
@@ -35,6 +36,8 @@ public enum KeychainError: Error, LocalizedError, Sendable, Equatable {
             return "Credential data is corrupted. Try running `claude login` again."
         case .processError(let code):
             return "Keychain read failed (exit code \(code))."
+        case .processTimeout:
+            return "Keychain read timed out. The security process may be unresponsive."
         }
     }
 }

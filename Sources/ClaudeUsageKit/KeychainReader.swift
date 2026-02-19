@@ -18,6 +18,10 @@ public struct KeychainReader: KeychainReading {
     /// Called only from a detached task, so blocking is safe.
     /// All non-Sendable types (Process, Pipe) are created, used, and destroyed
     /// within this single synchronous scope — no Sendable violations.
+    /// Terminates the child process and throws `.processTimeout` if it does
+    /// not exit within `timeoutSeconds`.
+    static let processTimeoutSeconds: Double = 10
+
     private static func runSecurityCLI() throws -> Data {
         let process = Process()
         let pipe = Pipe()
@@ -26,11 +30,21 @@ public struct KeychainReader: KeychainReading {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
 
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         try process.run()
 
-        // Read stdout BEFORE waitUntilExit() to avoid pipe buffer deadlock
+        // Read stdout BEFORE waiting for exit to avoid pipe buffer deadlock.
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+
+        let deadline = DispatchTime.now() + processTimeoutSeconds
+        if exited.wait(timeout: deadline) == .timedOut {
+            process.terminate()
+            // Give the process a moment to actually exit before returning.
+            _ = exited.wait(timeout: .now() + 1)
+            throw KeychainError.processTimeout
+        }
 
         guard process.terminationStatus == 0 else {
             switch process.terminationStatus {

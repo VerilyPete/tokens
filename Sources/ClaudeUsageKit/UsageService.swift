@@ -171,10 +171,12 @@ public final class UsageService {
                 logger.info("Keychain read succeeded, subscription: \(creds.subscriptionType ?? "unknown")")
             } catch let err as KeychainError {
                 error = .keychain(err)
+                consecutiveFailures += 1
                 logger.error("Keychain read failed: \(err.localizedDescription)")
                 return
             } catch {
                 self.error = .keychain(.malformedJSON)
+                consecutiveFailures += 1
                 return
             }
         }
@@ -245,6 +247,9 @@ public final class UsageService {
                                 tokenExpiresAt = creds.expiresAt
                                 subscriptionType = creds.subscriptionType
                                 await performFetch(retryOn401: false)
+                            } catch let keychainErr as KeychainError {
+                                self.error = .keychain(keychainErr)
+                                consecutiveFailures += 1
                             } catch {
                                 self.error = .unauthorized
                                 consecutiveFailures += 1
@@ -389,6 +394,10 @@ public final class UsageService {
 
     /// Run a process synchronously and return its stdout.
     /// Must be nonisolated static since it's called from Task.detached.
+    /// Terminates the child process and throws `.processTimeout` if it does
+    /// not exit within `processTimeoutSeconds`.
+    private static let processTimeoutSeconds: Double = 10
+
     private nonisolated static func runProcess(
         _ executablePath: String, arguments: [String]
     ) throws -> String {
@@ -399,9 +408,18 @@ public final class UsageService {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
 
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         try process.run()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+
+        let deadline = DispatchTime.now() + processTimeoutSeconds
+        if exited.wait(timeout: deadline) == .timedOut {
+            process.terminate()
+            _ = exited.wait(timeout: .now() + 1)
+            throw KeychainError.processTimeout
+        }
 
         guard process.terminationStatus == 0 else {
             throw KeychainError.processError(process.terminationStatus)

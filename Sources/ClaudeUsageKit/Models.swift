@@ -14,7 +14,8 @@ public struct UsageBucket: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        utilization = try container.decode(Double.self, forKey: .utilization)
+        let rawUtilization = try container.decode(Double.self, forKey: .utilization)
+        utilization = max(0.0, min(rawUtilization, 100.0))
         let dateString = try container.decode(String.self, forKey: .resetsAt)
         guard let date = Date.fromAPI(dateString) else {
             throw DecodingError.dataCorruptedError(

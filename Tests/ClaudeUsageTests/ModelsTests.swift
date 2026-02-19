@@ -46,6 +46,28 @@ struct UsageBucketTests {
             try JSONDecoder().decode(UsageBucket.self, from: json)
         }
     }
+
+    // Cycle 2d: Negative utilization clamped to 0
+    @Test("Clamps negative utilization to 0")
+    func decodeBucketClampsNegative() throws {
+        let json = """
+        {"utilization": -5.0, "resets_at": "2026-02-08T04:59:59.000000+00:00"}
+        """.data(using: .utf8)!
+
+        let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
+        #expect(bucket.utilization == 0.0)
+    }
+
+    // Cycle 2e: Utilization above 100 clamped to 100
+    @Test("Clamps utilization above 100 to 100")
+    func decodeBucketClampsOver100() throws {
+        let json = """
+        {"utilization": 150.0, "resets_at": "2026-02-08T04:59:59.000000+00:00"}
+        """.data(using: .utf8)!
+
+        let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
+        #expect(bucket.utilization == 100.0)
+    }
 }
 
 // MARK: - Phase 3: UsageResponse
