@@ -45,9 +45,9 @@ public final class UsageService {
     private var accessToken: String?
     private var refreshToken: String?
     private var tokenExpiresAt: Date?
-    private var pollTask: Task<Void, Never>?
-    private var wakeTask: Task<Void, Never>?
-    private var wakeObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var pollTask: Task<Void, Never>?
+    private nonisolated(unsafe) var wakeTask: Task<Void, Never>?
+    private nonisolated(unsafe) var wakeObserver: NSObjectProtocol?
     private var isRefreshing = false
     private(set) var consecutiveFailures = 0
 
