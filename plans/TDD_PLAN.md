@@ -153,6 +153,12 @@ RED:   testCredentialsExpiresAtSeconds — expiresAt: 1770559200 (seconds) parse
 GREEN: Heuristic detects 10-digit timestamps as seconds, skips /1000 division
 ```
 
+**Cycle 4f: Type mismatch propagated**
+```
+RED:   testCredentialsTypeMismatchPropagated — accessToken is integer, not string → typeMismatch error
+GREEN: decodeFirstMatch's contains(key) + error tracking surfaces the real error, not keyNotFound
+```
+
 **Cycle 4e: Optional fields**
 ```
 RED:   testCredentialsOptionalFields — subscriptionType and rateLimitTier absent
@@ -568,11 +574,11 @@ Implement in order:
 
 | Test File | # Tests | What's Covered |
 |---|---|---|
-| `ModelsTests.swift` | 19 | UsageBucket (3), UsageResponse (2), OAuthCredentials (5), TokenRefreshResponse (1), Date.fromAPI (5), ExtraUsage (3) |
+| `ModelsTests.swift` | 20 | UsageBucket (3), UsageResponse (2), OAuthCredentials (6), TokenRefreshResponse (1), Date.fromAPI (5), ExtraUsage (3) |
 | `KeychainParsingTests.swift` | 5 | Wrapped/bare format, malformed JSON, whitespace, snake_case in wrapper |
 | `FormattingTests.swift` | 22 | UsageLevel thresholds (6), reset time (5), reset time from Date (2), time ago (3), menu bar label (6) |
 | `UsageServiceTests.swift` | 36 | Form encoding (3), version parsing (3), fetch flow (20: 12a–12t), error descriptions (10) |
-| **Total** | **82** | All business logic + error messages |
+| **Total** | **83** | All business logic + error messages |
 
 ---
 

@@ -137,6 +137,27 @@ struct OAuthCredentialsTests {
         #expect(abs(creds.expiresAt.timeIntervalSince(expectedDate)) < 0.001)
     }
 
+    // Cycle 4f: Type mismatch propagated (not masked as key-not-found)
+    @Test("Propagates type mismatch when key exists with wrong type")
+    func credentialsTypeMismatchPropagated() {
+        // accessToken is an integer, not a string — should throw typeMismatch
+        let json = """
+        {"accessToken": 12345, "refreshToken": "ref", "expiresAt": 1000000}
+        """.data(using: .utf8)!
+
+        do {
+            _ = try JSONDecoder().decode(OAuthCredentials.self, from: json)
+            Issue.record("Expected decoding to throw")
+        } catch let error as DecodingError {
+            guard case .typeMismatch = error else {
+                Issue.record("Expected .typeMismatch but got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected DecodingError but got \(error)")
+        }
+    }
+
     // Cycle 4e: Optional fields absent
     @Test("Handles missing optional fields gracefully")
     func credentialsOptionalFields() throws {
