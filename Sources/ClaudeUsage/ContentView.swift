@@ -209,7 +209,7 @@ struct ContentView: View {
             }
 
             Button("Retry") {
-                Task { await service.fetchUsage() }
+                Task { await service.reloadCredentials() }
             }
             .buttonStyle(.bordered)
         }

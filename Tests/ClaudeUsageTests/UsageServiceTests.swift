@@ -446,6 +446,33 @@ struct UsageServiceFetchTests {
         #expect(service.error == nil)
     }
 
+    // Cycle 12o2: reloadCredentials picks up new keychain creds after decodingFailed
+    @Test("reloadCredentials re-reads keychain after decodingFailed error")
+    @MainActor
+    func reloadAfterDecodingFailedUsesNewCredentials() async {
+        let (service, mockKeychain, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials(accessToken: "old-token")
+        )
+
+        // First fetch: API returns 200 with invalid JSON → decodingFailed
+        mockNetwork.enqueue(data: "not json".data(using: .utf8)!, statusCode: 200)
+        await service.fetchUsage()
+        #expect(service.error == .decodingFailed)
+
+        // User runs `claude login` → new credentials in keychain
+        mockKeychain.enqueue(.success(TestData.mockCredentials(accessToken: "new-token")))
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        // Simulates pressing Retry, which now calls reloadCredentials()
+        await service.reloadCredentials()
+
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+        // Verify the second fetch used the NEW token from keychain, not the old one
+        let lastRequest = mockNetwork.requestHistory.last
+        #expect(lastRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer new-token")
+    }
+
     // Cycle 12p: Network error triggers transient retry
     @Test("Retries on network error then succeeds")
     @MainActor
