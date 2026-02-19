@@ -93,8 +93,10 @@ public final class UsageService {
         // Prevent double-registration: clean up any existing poll + wake observer
         stopPolling()
 
+        // Fire-and-forget: version detection runs in parallel with first fetch
+        Task { await detectClaudeVersion() }
+
         pollTask = Task {
-            await detectClaudeVersion()
             while !Task.isCancelled {
                 await fetchUsage()
                 let interval = consecutiveFailures >= 3 ? 300.0 : 120.0
@@ -141,6 +143,7 @@ public final class UsageService {
     // MARK: Fetch
 
     public func fetchUsage() async {
+        guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
 
@@ -227,6 +230,7 @@ public final class UsageService {
                                 accessToken = creds.accessToken
                                 refreshToken = creds.refreshToken
                                 tokenExpiresAt = creds.expiresAt
+                                subscriptionType = creds.subscriptionType
                                 await performFetch(retryOn401: false)
                             } catch {
                                 self.error = .unauthorized
@@ -331,8 +335,8 @@ public final class UsageService {
             ("client_id", oauthClientId),
         ]
         let encoded = pairs.map { key, value in
-            let k = key.addingPercentEncoding(withAllowedCharacters: formValueAllowed)!
-            let v = value.addingPercentEncoding(withAllowedCharacters: formValueAllowed)!
+            let k = key.addingPercentEncoding(withAllowedCharacters: formValueAllowed) ?? key
+            let v = value.addingPercentEncoding(withAllowedCharacters: formValueAllowed) ?? value
             return "\(k)=\(v)"
         }.joined(separator: "&")
         return encoded.data(using: .utf8)

@@ -39,6 +39,17 @@ struct FormEncodingTests {
 
         #expect(bodyString.contains("abc123%2Bxyz%2Fend%3D%3D"))
     }
+
+    // Cycle 10d: No force-unwrap crash (nil-safe after removing !)
+    @Test("Returns valid body without force-unwrap crash")
+    func formEncodeNilSafe() throws {
+        // Verify the refactored code (using ?? instead of !) still produces valid output
+        let body = UsageService.buildRefreshBody(refreshToken: "a-perfectly-normal-token")
+        let bodyString = try #require(body.flatMap { String(data: $0, encoding: .utf8) })
+
+        #expect(bodyString.contains("grant_type=refresh_token"))
+        #expect(bodyString.contains("refresh_token=a-perfectly-normal-token"))
+    }
 }
 
 // MARK: - Phase 11: Version Parsing
@@ -472,6 +483,51 @@ struct UsageServiceFetchTests {
         mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
         await service.fetchUsage()
         #expect(service.consecutiveFailures == 0)
+    }
+
+    // Cycle 12u: Concurrent fetch guard
+    @Test("Skips fetch when already loading (concurrent call guard)")
+    @MainActor
+    func fetchWhileAlreadyLoading() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+
+        // Simulate an in-flight fetch
+        service.isLoading = true
+
+        // This call should be a no-op due to the guard
+        await service.fetchUsage()
+
+        // No network request should have been made
+        #expect(mockNetwork.requestHistory.count == 0)
+    }
+
+    // Cycle 12v: subscriptionType updated on 401 keychain re-read
+    @Test("Updates subscriptionType when keychain is re-read after 401")
+    @MainActor
+    func subscriptionTypeUpdatedOn401KeychainReread() async {
+        // Initial credentials with "Pro" subscription
+        let (service, mockKeychain, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials(subscriptionType: "Pro")
+        )
+
+        // First fetch: 401
+        mockNetwork.enqueue(data: Data(), statusCode: 401)
+        // Refresh: fails
+        mockNetwork.enqueue(data: Data(), statusCode: 400)
+        // Keychain re-read returns "Max" subscription
+        mockKeychain.enqueue(.success(TestData.mockCredentials(
+            accessToken: "fresh-token",
+            subscriptionType: "Max"
+        )))
+        // Retry fetch: success
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.subscriptionType == "Max")
+        #expect(service.usage != nil)
     }
 }
 

@@ -385,6 +385,12 @@ RED:   testFormEncodeBase64Token — token "abc123+xyz/end==" encodes correctly
 GREEN: Already handled by strict percent-encoding
 ```
 
+**Cycle 10d: Nil-safe after removing force-unwraps (Issue #2 Bug 1)**
+```
+RED:   testFormEncodeNilSafe — buildRefreshBody returns valid Data after replacing ! with ?? fallback
+GREEN: Replace force-unwrap (!) with ?? key / ?? value in percent-encoding map closure
+```
+
 ---
 
 ### Phase 11: UsageService — Version Parsing
@@ -531,6 +537,18 @@ RED:   testConsecutiveFailuresTracking — increments on 403, resets to 0 on suc
 GREEN: consecutiveFailures += 1 on error paths, = 0 on 200 success
 ```
 
+**Cycle 12u: Concurrent fetch guard (Issue #2 Bug 2)**
+```
+RED:   testFetchWhileAlreadyLoading — set isLoading = true, call fetchUsage(), verify 0 network requests
+GREEN: Add `guard !isLoading else { return }` at top of fetchUsage()
+```
+
+**Cycle 12v: subscriptionType updated on 401 keychain re-read (Issue #2 Bug 4)**
+```
+RED:   testSubscriptionTypeUpdatedOn401KeychainReread — initial "Pro", 401 + re-read returns "Max", verify == "Max"
+GREEN: Add `subscriptionType = creds.subscriptionType` in 401 keychain re-read block
+```
+
 ---
 
 ### Phase 12.5: Error Description Strings
@@ -577,8 +595,8 @@ Implement in order:
 | `ModelsTests.swift` | 20 | UsageBucket (3), UsageResponse (2), OAuthCredentials (6), TokenRefreshResponse (1), Date.fromAPI (5), ExtraUsage (3) |
 | `KeychainParsingTests.swift` | 5 | Wrapped/bare format, malformed JSON, whitespace, snake_case in wrapper |
 | `FormattingTests.swift` | 22 | UsageLevel thresholds (6), reset time (5), reset time from Date (2), time ago (3), menu bar label (6) |
-| `UsageServiceTests.swift` | 36 | Form encoding (3), version parsing (3), fetch flow (20: 12a–12t), error descriptions (10) |
-| **Total** | **83** | All business logic + error messages |
+| `UsageServiceTests.swift` | 39 | Form encoding (4), version parsing (3), fetch flow (22: 12a–12v), error descriptions (10) |
+| **Total** | **86** | All business logic + error messages + bug fixes |
 
 ---
 
