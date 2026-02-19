@@ -355,7 +355,7 @@ struct UsageServiceFetchTests {
         // Refresh: fails
         mockNetwork.enqueue(data: Data(), statusCode: 400)
         // Keychain re-read: fails with notFound
-        mockKeychain.enqueue(.failure(.notFound))
+        mockKeychain.enqueue(.failure(KeychainError.notFound))
 
         await service.fetchUsage()
 
