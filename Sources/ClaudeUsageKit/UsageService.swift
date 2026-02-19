@@ -108,12 +108,14 @@ public final class UsageService {
             forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            logger.info("System wake detected, scheduling refresh")
-            self?.wakeTask?.cancel()
-            self?.wakeTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(3))
-                guard !Task.isCancelled else { return }
-                await self?.fetchUsage()
+            MainActor.assumeIsolated {
+                logger.info("System wake detected, scheduling refresh")
+                self?.wakeTask?.cancel()
+                self?.wakeTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    await self?.fetchUsage()
+                }
             }
         }
     }
@@ -350,7 +352,7 @@ public final class UsageService {
     }
 
     private func detectClaudeVersion() async {
-        let version: String? = try? await Task.detached {
+        let version: String? = await Task.detached {
             let candidates = [
                 "\(NSHomeDirectory())/.claude/bin/claude",
                 "/usr/local/bin/claude",
