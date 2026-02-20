@@ -14,7 +14,6 @@ public protocol NetworkSession: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
-extension URLSession: @retroactive @unchecked Sendable {}
 extension URLSession: NetworkSession {}
 
 // MARK: - Keychain Errors

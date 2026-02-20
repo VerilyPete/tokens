@@ -34,14 +34,14 @@ struct UsageBarView: View {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(usageLevel(for: percentage).color)
                             .frame(
-                                width: geometry.size.width * max(0.0, min(percentage / 100, 1.0)),
+                                width: geometry.size.width * (percentage / 100),
                                 height: 6
                             )
                     }
                 }
                 .frame(height: 6)
 
-                Text("\(Int(max(0.0, min(percentage, 100.0))))%")
+                Text("\(Int(percentage))%")
                     .font(.system(.body, design: .monospaced))
                     .frame(width: 45, alignment: .trailing)
             }

@@ -2,12 +2,11 @@ import Testing
 import Foundation
 @testable import ClaudeUsageKit
 
-// MARK: - Phase 10: Form Encoding
+// MARK: - Form Encoding
 
 @Suite("UsageService.buildRefreshBody")
 struct FormEncodingTests {
 
-    // Cycle 10a: Simple values
     @Test("Builds form-encoded body with standard values")
     func formEncodeSimple() throws {
         let body = UsageService.buildRefreshBody(refreshToken: "simple-token")
@@ -19,7 +18,6 @@ struct FormEncodingTests {
         #expect(bodyString.contains("&"))
     }
 
-    // Cycle 10b: Special characters get percent-encoded
     @Test("Percent-encodes special characters in refresh token")
     func formEncodeSpecialChars() throws {
         let body = UsageService.buildRefreshBody(refreshToken: "token+with/special=chars&more")
@@ -31,7 +29,6 @@ struct FormEncodingTests {
         #expect(!bodyString.contains("refresh_token=token+"))
     }
 
-    // Cycle 10c: Token with base64 characters
     @Test("Correctly encodes base64-style tokens")
     func formEncodeBase64Token() throws {
         let body = UsageService.buildRefreshBody(refreshToken: "abc123+xyz/end==")
@@ -40,7 +37,6 @@ struct FormEncodingTests {
         #expect(bodyString.contains("abc123%2Bxyz%2Fend%3D%3D"))
     }
 
-    // Cycle 10d: No force-unwrap crash (nil-safe after removing !)
     @Test("Returns valid body without force-unwrap crash")
     func formEncodeNilSafe() throws {
         // Verify the refactored code (using ?? instead of !) still produces valid output
@@ -52,26 +48,23 @@ struct FormEncodingTests {
     }
 }
 
-// MARK: - Phase 11: Version Parsing
+// MARK: - Version Parsing
 
 @Suite("UsageService.parseVersion")
 struct VersionParsingTests {
 
-    // Cycle 11a: Standard version string
     @Test("Extracts version from 'Claude Code vX.Y.Z' format")
     func parseVersionStandard() {
         let version = UsageService.parseVersion(from: "Claude Code v1.2.3\n")
         #expect(version == "1.2.3")
     }
 
-    // Cycle 11b: No version found
     @Test("Returns nil when no version pattern found")
     func parseVersionNoMatch() {
         let version = UsageService.parseVersion(from: "some other output")
         #expect(version == nil)
     }
 
-    // Cycle 11c: Version with extra text
     @Test("Extracts version from longer output")
     func parseVersionExtraText() {
         let version = UsageService.parseVersion(from: "Claude Code v0.3.17 (some extra info)")
@@ -79,12 +72,11 @@ struct VersionParsingTests {
     }
 }
 
-// MARK: - Phase 12: UsageService Fetch Flow
+// MARK: - UsageService Fetch Flow
 
 @Suite("UsageService fetch flow")
 struct UsageServiceFetchTests {
 
-    // Helper: create a UsageService with mocked dependencies
     @MainActor
     private func makeService(
         credentials: OAuthCredentials? = nil,
@@ -106,7 +98,6 @@ struct UsageServiceFetchTests {
         return (service, mockKeychain, mockNetwork)
     }
 
-    // Cycle 12a: Successful fetch
     @Test("Populates usage and clears error on successful fetch")
     @MainActor
     func fetchSuccess() async {
@@ -123,7 +114,6 @@ struct UsageServiceFetchTests {
         #expect(service.lastUpdated != nil)
     }
 
-    // Cycle 12b: 401 triggers refresh then retry
     @Test("Refreshes token and retries on 401")
     @MainActor
     func fetch401RefreshAndRetry() async {
@@ -146,7 +136,6 @@ struct UsageServiceFetchTests {
         #expect(mockNetwork.requestHistory.count == 3)
     }
 
-    // Cycle 12c: 403 gives specific error
     @Test("Sets forbidden error on 403 without attempting refresh")
     @MainActor
     func fetch403Forbidden() async {
@@ -162,7 +151,6 @@ struct UsageServiceFetchTests {
         #expect(mockNetwork.requestHistory.count == 1)
     }
 
-    // Cycle 12d: Network error
     @Test("Wraps URLError in .network error")
     @MainActor
     func fetchNetworkError() async {
@@ -180,7 +168,6 @@ struct UsageServiceFetchTests {
         #expect(service.error == .network(URLError(.notConnectedToInternet)))
     }
 
-    // Cycle 12e: Keychain error propagates
     @Test("Sets keychain error when credentials not found")
     @MainActor
     func fetchKeychainError() async {
@@ -191,7 +178,6 @@ struct UsageServiceFetchTests {
         #expect(service.error == .keychain(.notFound))
     }
 
-    // Cycle 12e2: Keychain error increments consecutiveFailures
     @Test("Keychain error increments consecutiveFailures for polling backoff")
     @MainActor
     func keychainErrorIncrementsConsecutiveFailures() async {
@@ -204,7 +190,6 @@ struct UsageServiceFetchTests {
         #expect(service.consecutiveFailures == 2)
     }
 
-    // Cycle 12f2: menuBarLabel when usage present but fiveHour is nil
     @Test("menuBarLabel shows '--%' when usage is set but fiveHour bucket is absent")
     @MainActor
     func menuBarLabelNoFiveHour() async {
@@ -229,7 +214,6 @@ struct UsageServiceFetchTests {
         #expect(service.menuBarLabel == "--%")
     }
 
-    // Cycle 12f3: menuBarLabel when all buckets are null
     @Test("menuBarLabel shows '--%' when API returns 200 but all buckets are null")
     @MainActor
     func menuBarLabelAllNullBuckets() async {
@@ -245,7 +229,6 @@ struct UsageServiceFetchTests {
         #expect(service.menuBarLabel == "--%")
     }
 
-    // Cycle 12f: Menu bar label reflects state
     @Test("menuBarLabel updates based on fetched usage")
     @MainActor
     func menuBarLabelUpdates() async {
@@ -263,7 +246,6 @@ struct UsageServiceFetchTests {
         #expect(service.menuBarLabel == "37%")
     }
 
-    // Cycle 12g: Subscription type is set from keychain
     @Test("Sets subscriptionType from keychain credentials")
     @MainActor
     func subscriptionTypeFromKeychain() async {
@@ -277,7 +259,6 @@ struct UsageServiceFetchTests {
         #expect(service.subscriptionType == "Max")
     }
 
-    // Cycle 12h: Decoding error
     @Test("Sets decodingFailed error for malformed response")
     @MainActor
     func fetchDecodingError() async {
@@ -291,7 +272,6 @@ struct UsageServiceFetchTests {
         #expect(service.error == .decodingFailed)
     }
 
-    // Cycle 12i: Headers are set correctly
     @Test("Sets required Authorization, anthropic-beta, and User-Agent headers")
     @MainActor
     func fetchSetsHeaders() async {
@@ -308,7 +288,6 @@ struct UsageServiceFetchTests {
         #expect(request?.value(forHTTPHeaderField: "User-Agent") == "claude-code/0.0.0")
     }
 
-    // Cycle 12j: Proactive refresh when token near-expiry
     @Test("Triggers proactive refresh when token expires within 15 minutes")
     @MainActor
     func proactiveRefresh() async {
@@ -332,7 +311,6 @@ struct UsageServiceFetchTests {
         #expect(mockNetwork.requestHistory[0].httpMethod == "POST")
     }
 
-    // Cycle 12j2: expires_in: 0 gets floored to 60s
     @Test("Floors expires_in to 60 seconds to prevent refresh loop")
     @MainActor
     func expiresInZeroFloored() async {
@@ -366,7 +344,6 @@ struct UsageServiceFetchTests {
         #expect(service.error == nil)
     }
 
-    // Cycle 12j3: Proactive refresh failure does NOT set error
     @Test("Proactive refresh failure does not set error on service")
     @MainActor
     func proactiveRefreshFailureNoError() async {
@@ -382,12 +359,11 @@ struct UsageServiceFetchTests {
 
         await service.fetchUsage()
 
-        // Error should be nil — the refresh failure should not leak
+        // Error should be nil -- the refresh failure should not leak
         #expect(service.error == nil)
         #expect(service.usage != nil)
     }
 
-    // Cycle 12k: Refresh failure falls back to keychain re-read
     @Test("Falls back to keychain re-read when refresh fails on 401")
     @MainActor
     func refreshFailureFallsBackToKeychain() async {
@@ -410,7 +386,6 @@ struct UsageServiceFetchTests {
         #expect(service.error == nil)
     }
 
-    // Cycle 12k2: Refresh without rotate preserves existing refresh token
     @Test("Preserves existing refresh token when server omits refresh_token")
     @MainActor
     func refreshWithoutRotatePreservesToken() async {
@@ -438,7 +413,6 @@ struct UsageServiceFetchTests {
         await service.reloadCredentials()
     }
 
-    // Cycle 12k3: 401 fallback keychain error preserves typed error
     @Test("401 fallback preserves KeychainError instead of masking as unauthorized")
     @MainActor
     func refreshFallbackKeychainErrorPreserved() async {
@@ -459,7 +433,6 @@ struct UsageServiceFetchTests {
         #expect(service.consecutiveFailures == 1)
     }
 
-    // Cycle 12l: 429 triggers transient retry
     @Test("Retries on 429 with backoff then succeeds")
     @MainActor
     func fetch429Retry() async {
@@ -481,7 +454,6 @@ struct UsageServiceFetchTests {
         #expect(mockNetwork.requestHistory.count == 2)
     }
 
-    // Cycle 12m: 429 exhausts all retries
     @Test("Sets HTTP error after exhausting all retries on 429")
     @MainActor
     func fetch429ExhaustedRetries() async {
@@ -502,7 +474,6 @@ struct UsageServiceFetchTests {
         #expect(mockNetwork.requestHistory.count == 4)
     }
 
-    // Cycle 12n: 5xx triggers transient retry
     @Test("Retries on 500 server error then succeeds")
     @MainActor
     func fetch500Retry() async {
@@ -520,7 +491,6 @@ struct UsageServiceFetchTests {
         #expect(service.error == nil)
     }
 
-    // Cycle 12o: reloadCredentials clears error and re-fetches
     @Test("reloadCredentials clears error and fetches fresh")
     @MainActor
     func reloadCredentialsClearsError() async {
@@ -542,7 +512,6 @@ struct UsageServiceFetchTests {
         #expect(service.error == nil)
     }
 
-    // Cycle 12o2: reloadCredentials picks up new keychain creds after decodingFailed
     @Test("reloadCredentials re-reads keychain after decodingFailed error")
     @MainActor
     func reloadAfterDecodingFailedUsesNewCredentials() async {
@@ -550,12 +519,12 @@ struct UsageServiceFetchTests {
             credentials: TestData.mockCredentials(accessToken: "old-token")
         )
 
-        // First fetch: API returns 200 with invalid JSON → decodingFailed
+        // First fetch: API returns 200 with invalid JSON -> decodingFailed
         mockNetwork.enqueue(data: "not json".data(using: .utf8)!, statusCode: 200)
         await service.fetchUsage()
         #expect(service.error == .decodingFailed)
 
-        // User runs `claude login` → new credentials in keychain
+        // User runs `claude login` -> new credentials in keychain
         mockKeychain.enqueue(.success(TestData.mockCredentials(accessToken: "new-token")))
         mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
 
@@ -569,7 +538,6 @@ struct UsageServiceFetchTests {
         #expect(lastRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer new-token")
     }
 
-    // Cycle 12p: Network error triggers transient retry
     @Test("Retries on network error then succeeds")
     @MainActor
     func fetchNetworkErrorRetry() async {
@@ -587,7 +555,6 @@ struct UsageServiceFetchTests {
         #expect(service.error == nil)
     }
 
-    // Cycle 12q: Decoding error is not retried
     @Test("Does not retry on decoding error")
     @MainActor
     func fetchDecodingErrorNoRetry() async {
@@ -605,7 +572,6 @@ struct UsageServiceFetchTests {
         #expect(mockNetwork.requestHistory.count == 1)
     }
 
-    // Cycle 12r: Error with cached data shows cached percentage in menu bar
     @Test("Shows cached data in menu bar label when error occurs after successful fetch")
     @MainActor
     func menuBarLabelWithCachedDataOnError() async {
@@ -627,7 +593,6 @@ struct UsageServiceFetchTests {
         #expect(service.error == .forbidden)
     }
 
-    // Cycle 12s: isLoading transitions
     @Test("isLoading is true during fetch and false after")
     @MainActor
     func isLoadingTransitions() async {
@@ -645,7 +610,6 @@ struct UsageServiceFetchTests {
         #expect(service.isLoading == false)
     }
 
-    // Cycle 12t: consecutiveFailures increments and resets
     @Test("consecutiveFailures increments on error and resets on success")
     @MainActor
     func consecutiveFailuresTracking() async {
@@ -664,13 +628,12 @@ struct UsageServiceFetchTests {
         await service.fetchUsage()
         #expect(service.consecutiveFailures == 2)
 
-        // Third fetch: success — resets counter
+        // Third fetch: success -- resets counter
         mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
         await service.fetchUsage()
         #expect(service.consecutiveFailures == 0)
     }
 
-    // Cycle 12u: Concurrent fetch guard
     @Test("Skips fetch when already loading (concurrent call guard)")
     @MainActor
     func fetchWhileAlreadyLoading() async {
@@ -683,7 +646,7 @@ struct UsageServiceFetchTests {
             networkSession: holdingNetwork
         )
 
-        // Start first fetch — it will suspend at the network call
+        // Start first fetch -- it will suspend at the network call
         let firstFetch = Task { @MainActor in
             await service.fetchUsage()
         }
@@ -704,7 +667,6 @@ struct UsageServiceFetchTests {
         #expect(service.usage != nil)
     }
 
-    // Cycle 12w: reloadCredentials while fetch in-flight keeps error visible
     @Test("reloadCredentials does not clear error when a fetch is in-flight")
     @MainActor
     func reloadCredentialsDuringLoadingKeepsError() async {
@@ -738,7 +700,6 @@ struct UsageServiceFetchTests {
         await firstFetch.value
     }
 
-    // Cycle 12v: subscriptionType updated on 401 keychain re-read
     @Test("Updates subscriptionType when keychain is re-read after 401")
     @MainActor
     func subscriptionTypeUpdatedOn401KeychainReread() async {
@@ -767,7 +728,7 @@ struct UsageServiceFetchTests {
     }
 }
 
-// MARK: - Error Description Tests
+// MARK: - Error Descriptions
 
 @Suite("Error descriptions")
 struct ErrorDescriptionTests {
@@ -843,8 +804,6 @@ struct ErrorDescriptionTests {
         #expect(error.errorDescription == "Token refresh failed: HTTP 400")
     }
 
-    // requiresReauthentication
-
     @Test("Auth errors require reauthentication")
     func authErrorsRequireReauth() {
         #expect(UsageError.unauthorized.requiresReauthentication == true)
@@ -861,7 +820,7 @@ struct ErrorDescriptionTests {
     }
 }
 
-// MARK: - describeDecodingError
+// MARK: - Decoding Error Diagnostics
 
 @Suite("UsageService.describeDecodingError")
 struct DescribeDecodingErrorTests {
@@ -923,22 +882,31 @@ private struct AnyCodingKey: CodingKey {
     init?(intValue: Int) { return nil }
 }
 
-// MARK: - pollInterval
+// MARK: - Poll Interval
 
 @Suite("UsageService.pollInterval")
 struct PollIntervalTests {
 
+    @MainActor
+    private func makeService() -> (UsageService, MockKeychainReader, MockNetworkSession) {
+        let mockKeychain = MockKeychainReader()
+        mockKeychain.result = .success(TestData.mockCredentials())
+        let mockNetwork = MockNetworkSession()
+        let service = UsageService(keychainReader: mockKeychain, networkSession: mockNetwork)
+        return (service, mockKeychain, mockNetwork)
+    }
+
     @Test("Returns 120 seconds with zero consecutive failures")
     @MainActor
     func pollIntervalDefault() {
-        let (service, _, _) = makeServiceForPollTest()
+        let (service, _, _) = makeService()
         #expect(service.pollInterval == 120.0)
     }
 
     @Test("Returns 120 seconds with fewer than 3 consecutive failures")
     @MainActor
     func pollIntervalBelowThreshold() async {
-        let (service, _, mockNetwork) = makeServiceForPollTest()
+        let (service, _, mockNetwork) = makeService()
         service.retryBaseDelay = 0
 
         mockNetwork.enqueue(data: Data(), statusCode: 403)
@@ -953,7 +921,7 @@ struct PollIntervalTests {
     @Test("Returns 300 seconds at exactly 3 consecutive failures")
     @MainActor
     func pollIntervalAtThreshold() async {
-        let (service, _, mockNetwork) = makeServiceForPollTest()
+        let (service, _, mockNetwork) = makeService()
         service.retryBaseDelay = 0
 
         for _ in 0..<3 {
@@ -968,7 +936,7 @@ struct PollIntervalTests {
     @Test("Returns 300 seconds above 3 consecutive failures")
     @MainActor
     func pollIntervalAboveThreshold() async {
-        let (service, _, mockNetwork) = makeServiceForPollTest()
+        let (service, _, mockNetwork) = makeService()
         service.retryBaseDelay = 0
 
         for _ in 0..<5 {
@@ -983,7 +951,7 @@ struct PollIntervalTests {
     @Test("Resets to 120 seconds after a success following failures")
     @MainActor
     func pollIntervalResetsOnSuccess() async {
-        let (service, _, mockNetwork) = makeServiceForPollTest()
+        let (service, _, mockNetwork) = makeService()
         service.retryBaseDelay = 0
 
         for _ in 0..<3 {
@@ -996,14 +964,5 @@ struct PollIntervalTests {
         await service.fetchUsage()
         #expect(service.consecutiveFailures == 0)
         #expect(service.pollInterval == 120.0)
-    }
-
-    @MainActor
-    private func makeServiceForPollTest() -> (UsageService, MockKeychainReader, MockNetworkSession) {
-        let mockKeychain = MockKeychainReader()
-        mockKeychain.result = .success(TestData.mockCredentials())
-        let mockNetwork = MockNetworkSession()
-        let service = UsageService(keychainReader: mockKeychain, networkSession: mockNetwork)
-        return (service, mockKeychain, mockNetwork)
     }
 }

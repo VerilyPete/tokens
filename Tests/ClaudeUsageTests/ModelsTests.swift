@@ -2,12 +2,11 @@ import Testing
 import Foundation
 @testable import ClaudeUsageKit
 
-// MARK: - Phase 2: UsageBucket
+// MARK: - UsageBucket
 
 @Suite("UsageBucket Decoding")
 struct UsageBucketTests {
 
-    // Cycle 2a: Decode with fractional seconds
     @Test("Decodes utilization and ISO 8601 date with fractional seconds")
     func decodeBucketWithFractionalSeconds() throws {
         let json = """
@@ -22,7 +21,6 @@ struct UsageBucketTests {
         #expect(abs(resetsAt.timeIntervalSince1970 - 1770526799) < 1)
     }
 
-    // Cycle 2b: Decode without fractional seconds
     @Test("Decodes ISO 8601 date without fractional seconds")
     func decodeBucketWithoutFractionalSeconds() throws {
         let json = """
@@ -37,7 +35,6 @@ struct UsageBucketTests {
         #expect(abs(resetsAt.timeIntervalSince1970 - 1770526800) < 1)
     }
 
-    // Cycle 2c: Reject malformed date
     @Test("Throws on malformed date string")
     func decodeBucketWithBadDate() throws {
         let json = """
@@ -49,7 +46,6 @@ struct UsageBucketTests {
         }
     }
 
-    // Cycle 2d: Negative utilization clamped to 0
     @Test("Clamps negative utilization to 0")
     func decodeBucketClampsNegative() throws {
         let json = """
@@ -60,7 +56,6 @@ struct UsageBucketTests {
         #expect(bucket.utilization == 0.0)
     }
 
-    // Cycle 2e: Utilization above 100 clamped to 100
     @Test("Clamps utilization above 100 to 100")
     func decodeBucketClampsOver100() throws {
         let json = """
@@ -71,28 +66,24 @@ struct UsageBucketTests {
         #expect(bucket.utilization == 100.0)
     }
 
-    // Cycle 2f: Programmatic init clamps negative utilization
     @Test("Programmatic init clamps negative utilization to 0")
     func programmaticInitClampsNegative() {
         let bucket = UsageBucket(utilization: -10.0, resetsAt: Date())
         #expect(bucket.utilization == 0.0)
     }
 
-    // Cycle 2g: Programmatic init clamps utilization above 100
     @Test("Programmatic init clamps utilization above 100 to 100")
     func programmaticInitClampsOver100() {
         let bucket = UsageBucket(utilization: 200.0, resetsAt: Date())
         #expect(bucket.utilization == 100.0)
     }
 
-    // Cycle 2h: Programmatic init preserves valid utilization
     @Test("Programmatic init preserves valid utilization unchanged")
     func programmaticInitPreservesValid() {
         let bucket = UsageBucket(utilization: 42.5, resetsAt: Date())
         #expect(bucket.utilization == 42.5)
     }
 
-    // Cycle 2i: Decode with null resets_at
     @Test("Decodes bucket with null resets_at as nil date")
     func decodeBucketWithNullResetsAt() throws {
         let json = """
@@ -105,12 +96,11 @@ struct UsageBucketTests {
     }
 }
 
-// MARK: - Phase 3: UsageResponse
+// MARK: - UsageResponse
 
 @Suite("UsageResponse Decoding")
 struct UsageResponseTests {
 
-    // Cycle 3a: Full response with all fields
     @Test("Decodes complete API response with all fields")
     func decodeFullUsageResponse() throws {
         let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.fullUsageJSON)
@@ -124,7 +114,6 @@ struct UsageResponseTests {
         #expect(response.extraUsage?.isEnabled == false)
     }
 
-    // Cycle 3b: Response with null/missing optional fields
     @Test("Decodes response with null and missing optional fields")
     func decodeResponseWithNullOptionals() throws {
         let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.minimalUsageJSON)
@@ -136,7 +125,6 @@ struct UsageResponseTests {
         #expect(response.extraUsage == nil)
     }
 
-    // Cycle 3c: Response with null five_hour and seven_day
     @Test("Decodes response where five_hour and seven_day are null")
     func decodeResponseWithNullRequiredBuckets() throws {
         let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.nullBucketsJSON)
@@ -145,7 +133,6 @@ struct UsageResponseTests {
         #expect(response.sevenDay == nil)
     }
 
-    // Cycle 3d: Response with only five_hour present
     @Test("Decodes response where only five_hour is present")
     func decodeResponseWithPartialBuckets() throws {
         let json = """
@@ -164,7 +151,6 @@ struct UsageResponseTests {
         #expect(response.sevenDay == nil)
     }
 
-    // Cycle 3e: Empty response (no fields at all)
     @Test("Decodes empty JSON object with all buckets nil")
     func decodeEmptyResponse() throws {
         let json = "{}".data(using: .utf8)!
@@ -177,7 +163,6 @@ struct UsageResponseTests {
         #expect(response.extraUsage == nil)
     }
 
-    // Cycle 3f: Unknown API fields must not cause a throw
     @Test("Ignores unknown API keys and decodes known fields correctly")
     func decodeResponseWithUnknownFields() throws {
         let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.unknownFieldsUsageJSON)
@@ -192,7 +177,6 @@ struct UsageResponseTests {
         #expect(extra.monthlyLimit == 5000.0)
     }
 
-    // Cycle 3g: seven_day_sonnet with null resets_at decodes correctly
     @Test("Decodes seven_day_sonnet with null resets_at in a complete payload")
     func decodeResponseSonnetNullResetsAt() throws {
         let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.sonnetNullResetsAtJSON)
@@ -248,12 +232,11 @@ struct HasAnyUsageDataTests {
     }
 }
 
-// MARK: - Phase 4: OAuthCredentials
+// MARK: - OAuthCredentials
 
 @Suite("OAuthCredentials Decoding")
 struct OAuthCredentialsTests {
 
-    // Cycle 4a: CamelCase keys
     @Test("Decodes credentials with camelCase keys")
     func decodeCredentialsCamelCase() throws {
         let creds = try JSONDecoder().decode(
@@ -266,7 +249,6 @@ struct OAuthCredentialsTests {
         #expect(creds.rateLimitTier == "tier_1")
     }
 
-    // Cycle 4b: Snake_case keys
     @Test("Decodes credentials with snake_case keys")
     func decodeCredentialsSnakeCase() throws {
         let creds = try JSONDecoder().decode(
@@ -279,7 +261,7 @@ struct OAuthCredentialsTests {
         #expect(creds.rateLimitTier == "tier_2")
     }
 
-    // Cycle 4c: Epoch milliseconds → Date conversion
+
     @Test("Converts expiresAt from epoch milliseconds to Date")
     func credentialsExpiresAtConversion() throws {
         let creds = try JSONDecoder().decode(
@@ -291,7 +273,7 @@ struct OAuthCredentialsTests {
         #expect(abs(creds.expiresAt.timeIntervalSince(expectedDate)) < 0.001)
     }
 
-    // Cycle 4d: expiresAt seconds (Unix timestamp) heuristic
+
     @Test("Handles expiresAt in seconds (not milliseconds)")
     func credentialsExpiresAtSeconds() throws {
         let json = """
@@ -305,7 +287,7 @@ struct OAuthCredentialsTests {
         #expect(abs(creds.expiresAt.timeIntervalSince(expectedDate)) < 0.001)
     }
 
-    // Cycle 4f: Type mismatch propagated (not masked as key-not-found)
+
     @Test("Propagates type mismatch when key exists with wrong type")
     func credentialsTypeMismatchPropagated() {
         // accessToken is an integer, not a string — should throw typeMismatch
@@ -326,7 +308,7 @@ struct OAuthCredentialsTests {
         }
     }
 
-    // Cycle 4e: Optional fields absent
+
     @Test("Handles missing optional fields gracefully")
     func credentialsOptionalFields() throws {
         let json = """
@@ -341,12 +323,11 @@ struct OAuthCredentialsTests {
     }
 }
 
-// MARK: - Phase 5: TokenRefreshResponse
+// MARK: - TokenRefreshResponse
 
 @Suite("TokenRefreshResponse Decoding")
 struct TokenRefreshResponseTests {
 
-    // Cycle 5a: Decode refresh response
     @Test("Decodes token refresh response with snake_case keys")
     func decodeTokenRefreshResponse() throws {
         let response = try JSONDecoder().decode(
@@ -359,7 +340,7 @@ struct TokenRefreshResponseTests {
         #expect(response.refreshToken == "new-refresh-token")
     }
 
-    // Cycle 5b: Decode refresh response without refresh_token (RFC 6749 §6)
+
     @Test("Decodes refresh response without refresh_token field")
     func decodeTokenRefreshWithoutRefreshToken() throws {
         let response = try JSONDecoder().decode(

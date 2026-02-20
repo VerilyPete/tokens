@@ -2,12 +2,11 @@ import Testing
 import Foundation
 @testable import ClaudeUsageKit
 
-// MARK: - Phase 6: Keychain Parsing
+// MARK: - Keychain Parsing
 
 @Suite("KeychainReader.parseCredentials")
 struct KeychainParsingTests {
 
-    // Cycle 6a: Wrapped format
     @Test("Parses wrapped format with claudeAiOauth key")
     func parseWrappedCredentials() throws {
         let creds = try KeychainReader.parseCredentials(from: TestData.wrappedCredentialsJSON)
@@ -17,7 +16,6 @@ struct KeychainParsingTests {
         #expect(creds.subscriptionType == "Pro")
     }
 
-    // Cycle 6b: Bare format
     @Test("Parses bare format without wrapper key")
     func parseBareCredentials() throws {
         let creds = try KeychainReader.parseCredentials(from: TestData.camelCaseCredentialsJSON)
@@ -26,7 +24,6 @@ struct KeychainParsingTests {
         #expect(creds.refreshToken == "test-refresh-token")
     }
 
-    // Cycle 6c: Malformed JSON
     @Test("Throws malformedJSON for invalid data")
     func parseMalformedJSON() throws {
         let garbage = "not json at all".data(using: .utf8)!
@@ -36,7 +33,6 @@ struct KeychainParsingTests {
         }
     }
 
-    // Cycle 6d: Trailing whitespace
     @Test("Handles trailing newline in keychain output")
     func parseWithTrailingNewline() throws {
         let jsonWithNewline = """
@@ -47,7 +43,6 @@ struct KeychainParsingTests {
         #expect(creds.accessToken == "tok")
     }
 
-    // Cycle 6e: Snake_case keys in wrapped format
     @Test("Parses wrapped format with snake_case keys inside")
     func parseWrappedSnakeCaseCredentials() throws {
         let json = """

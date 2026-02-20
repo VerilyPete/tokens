@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import ClaudeUsageKit
 
-// MARK: - Phase 7: Usage Level Thresholds
+// MARK: - Usage Level Thresholds
 
 @Suite("usageLevel")
 struct UsageLevelTests {
@@ -52,7 +52,7 @@ struct UsageLevelTests {
     }
 }
 
-// MARK: - Phase 8: Time Formatting
+// MARK: - Time Formatting
 
 @Suite("formatResetTime")
 struct TimeFormattingTests {
@@ -141,7 +141,7 @@ struct TimeAgoTests {
     }
 }
 
-// MARK: - Phase 9: Menu Bar Label
+// MARK: - Menu Bar Label
 
 @Suite("formatMenuBarLabel")
 struct MenuBarLabelTests {

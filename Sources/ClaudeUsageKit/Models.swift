@@ -2,20 +2,25 @@ import Foundation
 
 // MARK: - API Response Models
 
+/// Clamp a value to the range 0...100.
+private func clampUtilization(_ value: Double) -> Double {
+    max(0.0, min(value, 100.0))
+}
+
 /// A single usage bucket (5-hour, 7-day, per-model).
 public struct UsageBucket: Codable, Sendable, Equatable {
     public let utilization: Double
     public let resetsAt: Date?
 
     public init(utilization: Double, resetsAt: Date? = nil) {
-        self.utilization = max(0.0, min(utilization, 100.0))
+        self.utilization = clampUtilization(utilization)
         self.resetsAt = resetsAt
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawUtilization = try container.decode(Double.self, forKey: .utilization)
-        utilization = max(0.0, min(rawUtilization, 100.0))
+        utilization = clampUtilization(rawUtilization)
         if let dateString = try container.decodeIfPresent(String.self, forKey: .resetsAt) {
             guard let date = Date.fromAPI(dateString) else {
                 throw DecodingError.dataCorruptedError(
