@@ -34,7 +34,7 @@ public final class UsageService {
     /// Menu bar label — computed from current state.
     public var menuBarLabel: String {
         formatMenuBarLabel(
-            utilization: usage?.fiveHour.utilization,
+            utilization: usage?.fiveHour?.utilization,
             hasError: error != nil,
             hasData: usage != nil
         )
@@ -229,7 +229,7 @@ public final class UsageService {
                     lastUpdated = Date()
                     error = nil
                     consecutiveFailures = 0
-                    logger.info("Usage fetched: \(decoded.fiveHour.utilization)%")
+                    logger.info("Usage fetched: \(decoded.fiveHour?.utilization.description ?? "nil")%")
                     return
 
                 case 401:
@@ -288,8 +288,10 @@ public final class UsageService {
                 error = .network(urlError)
                 consecutiveFailures += 1
                 return
-            } catch is DecodingError {
+            } catch let decodingError as DecodingError {
                 // Decoding errors are not transient — don't retry
+                let detail = Self.describeDecodingError(decodingError)
+                logger.error("API response decoding failed: \(detail)")
                 error = .decodingFailed
                 consecutiveFailures += 1
                 return
@@ -360,6 +362,24 @@ public final class UsageService {
             return "\(k)=\(v)"
         }.joined(separator: "&")
         return encoded.data(using: .utf8)
+    }
+
+    // MARK: Decoding Error Diagnostics
+
+    /// Extract a human-readable description from a DecodingError for logging.
+    nonisolated static func describeDecodingError(_ error: DecodingError) -> String {
+        switch error {
+        case .keyNotFound(let key, let context):
+            return "Missing key '\(key.stringValue)' at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+        case .typeMismatch(let type, let context):
+            return "Type mismatch for \(type) at \(context.codingPath.map(\.stringValue).joined(separator: ".")): \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            return "Null value for \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+        case .dataCorrupted(let context):
+            return "Data corrupted at \(context.codingPath.map(\.stringValue).joined(separator: ".")): \(context.debugDescription)"
+        @unknown default:
+            return error.localizedDescription
+        }
     }
 
     // MARK: Version Detection (internal static for testability)

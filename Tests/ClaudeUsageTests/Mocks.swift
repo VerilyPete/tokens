@@ -159,6 +159,13 @@ enum TestData {
     }
     """.data(using: .utf8)!
 
+    static let nullBucketsJSON = """
+    {
+      "five_hour": null,
+      "seven_day": null
+    }
+    """.data(using: .utf8)!
+
     static let camelCaseCredentialsJSON = """
     {
       "accessToken": "test-access-token",

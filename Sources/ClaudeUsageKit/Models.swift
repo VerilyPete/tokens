@@ -34,15 +34,15 @@ public struct UsageBucket: Codable, Sendable, Equatable {
 
 /// Top-level usage API response.
 public struct UsageResponse: Sendable, Equatable {
-    public let fiveHour: UsageBucket
-    public let sevenDay: UsageBucket
+    public let fiveHour: UsageBucket?
+    public let sevenDay: UsageBucket?
     public let sevenDayOpus: UsageBucket?
     public let sevenDaySonnet: UsageBucket?
     public let extraUsage: ExtraUsage?
 
     public init(
-        fiveHour: UsageBucket,
-        sevenDay: UsageBucket,
+        fiveHour: UsageBucket? = nil,
+        sevenDay: UsageBucket? = nil,
         sevenDayOpus: UsageBucket? = nil,
         sevenDaySonnet: UsageBucket? = nil,
         extraUsage: ExtraUsage? = nil
@@ -66,8 +66,8 @@ extension UsageResponse: Decodable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        fiveHour = try container.decode(UsageBucket.self, forKey: .fiveHour)
-        sevenDay = try container.decode(UsageBucket.self, forKey: .sevenDay)
+        fiveHour = try container.decodeIfPresent(UsageBucket.self, forKey: .fiveHour)
+        sevenDay = try container.decodeIfPresent(UsageBucket.self, forKey: .sevenDay)
         sevenDayOpus = try container.decodeIfPresent(UsageBucket.self, forKey: .sevenDayOpus)
         sevenDaySonnet = try container.decodeIfPresent(UsageBucket.self, forKey: .sevenDaySonnet)
         extraUsage = try container.decodeIfPresent(ExtraUsage.self, forKey: .extraUsage)

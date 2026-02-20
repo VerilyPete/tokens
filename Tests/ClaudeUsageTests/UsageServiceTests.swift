@@ -118,7 +118,7 @@ struct UsageServiceFetchTests {
         await service.fetchUsage()
 
         #expect(service.usage != nil)
-        #expect(service.usage?.fiveHour.utilization == 37.0)
+        #expect(service.usage?.fiveHour?.utilization == 37.0)
         #expect(service.error == nil)
         #expect(service.lastUpdated != nil)
     }

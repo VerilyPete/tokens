@@ -138,17 +138,21 @@ struct ContentView: View {
 
     @ViewBuilder
     private func usageContent(_ usage: UsageResponse) -> some View {
-        UsageBarView(
-            label: "5-Hour Session",
-            percentage: usage.fiveHour.utilization,
-            resetsAt: usage.fiveHour.resetsAt
-        )
+        if let fiveHour = usage.fiveHour {
+            UsageBarView(
+                label: "5-Hour Session",
+                percentage: fiveHour.utilization,
+                resetsAt: fiveHour.resetsAt
+            )
+        }
 
-        UsageBarView(
-            label: "7-Day Weekly",
-            percentage: usage.sevenDay.utilization,
-            resetsAt: usage.sevenDay.resetsAt
-        )
+        if let sevenDay = usage.sevenDay {
+            UsageBarView(
+                label: "7-Day Weekly",
+                percentage: sevenDay.utilization,
+                resetsAt: sevenDay.resetsAt
+            )
+        }
 
         if let sonnet = usage.sevenDaySonnet {
             UsageBarView(
