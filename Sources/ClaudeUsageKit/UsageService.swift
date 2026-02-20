@@ -205,6 +205,7 @@ public final class UsageService {
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
 
         // Retry loop: up to 4 attempts (initial + 3 retries) for transient errors
+        var lastResponseBody: String?
         for attempt in 0...3 {
             guard !Task.isCancelled else { return }
             if attempt > 0 {
@@ -221,6 +222,10 @@ public final class UsageService {
                     consecutiveFailures += 1
                     return
                 }
+
+                let bodyString = String(data: data, encoding: .utf8) ?? "<non-UTF8, \(data.count) bytes>"
+                lastResponseBody = bodyString
+                logger.debug("HTTP \(httpResponse.statusCode) response body: \(bodyString)")
 
                 switch httpResponse.statusCode {
                 case 200:
@@ -292,6 +297,9 @@ public final class UsageService {
                 // Decoding errors are not transient — don't retry
                 let detail = Self.describeDecodingError(decodingError)
                 logger.error("API response decoding failed: \(detail)")
+                if let rawBody = lastResponseBody {
+                    logger.error("Raw response body was: \(rawBody)")
+                }
                 error = .decodingFailed
                 consecutiveFailures += 1
                 return
