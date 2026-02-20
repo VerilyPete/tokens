@@ -225,7 +225,7 @@ public final class UsageService {
 
                 let bodyString = String(data: data, encoding: .utf8) ?? "<non-UTF8, \(data.count) bytes>"
                 lastResponseBody = bodyString
-                logger.debug("HTTP \(httpResponse.statusCode) response body: \(bodyString)")
+                logger.debug("HTTP \(httpResponse.statusCode) response body: \(bodyString, privacy: .public)")
 
                 switch httpResponse.statusCode {
                 case 200:
@@ -296,9 +296,9 @@ public final class UsageService {
             } catch let decodingError as DecodingError {
                 // Decoding errors are not transient — don't retry
                 let detail = Self.describeDecodingError(decodingError)
-                logger.error("API response decoding failed: \(detail)")
+                logger.error("API response decoding failed: \(detail, privacy: .public)")
                 if let rawBody = lastResponseBody {
-                    logger.error("Raw response body was: \(rawBody)")
+                    logger.error("Raw response body was: \(rawBody, privacy: .public)")
                 }
                 error = .decodingFailed
                 consecutiveFailures += 1
