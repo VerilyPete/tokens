@@ -18,7 +18,8 @@ struct UsageBucketTests {
 
         #expect(bucket.utilization == 37.0)
         // 2026-02-08T04:59:59Z = 1770526799 seconds since epoch
-        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770526799) < 1)
+        let resetsAt = try #require(bucket.resetsAt)
+        #expect(abs(resetsAt.timeIntervalSince1970 - 1770526799) < 1)
     }
 
     // Cycle 2b: Decode without fractional seconds
@@ -32,7 +33,8 @@ struct UsageBucketTests {
 
         #expect(bucket.utilization == 50.0)
         // 2026-02-08T05:00:00Z = 1770526800 seconds since epoch
-        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770526800) < 1)
+        let resetsAt = try #require(bucket.resetsAt)
+        #expect(abs(resetsAt.timeIntervalSince1970 - 1770526800) < 1)
     }
 
     // Cycle 2c: Reject malformed date
@@ -89,6 +91,18 @@ struct UsageBucketTests {
         let bucket = UsageBucket(utilization: 42.5, resetsAt: Date())
         #expect(bucket.utilization == 42.5)
     }
+
+    // Cycle 2i: Decode with null resets_at
+    @Test("Decodes bucket with null resets_at as nil date")
+    func decodeBucketWithNullResetsAt() throws {
+        let json = """
+        {"utilization": 0.0, "resets_at": null}
+        """.data(using: .utf8)!
+
+        let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
+        #expect(bucket.utilization == 0.0)
+        #expect(bucket.resetsAt == nil)
+    }
 }
 
 // MARK: - Phase 3: UsageResponse
@@ -101,8 +115,8 @@ struct UsageResponseTests {
     func decodeFullUsageResponse() throws {
         let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.fullUsageJSON)
 
-        #expect(response.fiveHour.utilization == 37.0)
-        #expect(response.sevenDay.utilization == 26.0)
+        #expect(response.fiveHour?.utilization == 37.0)
+        #expect(response.sevenDay?.utilization == 26.0)
         #expect(response.sevenDayOpus == nil)
         #expect(response.sevenDaySonnet != nil)
         #expect(response.sevenDaySonnet?.utilization == 1.0)
@@ -115,11 +129,122 @@ struct UsageResponseTests {
     func decodeResponseWithNullOptionals() throws {
         let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.minimalUsageJSON)
 
-        #expect(response.fiveHour.utilization == 50.0)
-        #expect(response.sevenDay.utilization == 10.0)
+        #expect(response.fiveHour?.utilization == 50.0)
+        #expect(response.sevenDay?.utilization == 10.0)
         #expect(response.sevenDayOpus == nil)
         #expect(response.sevenDaySonnet == nil)
         #expect(response.extraUsage == nil)
+    }
+
+    // Cycle 3c: Response with null five_hour and seven_day
+    @Test("Decodes response where five_hour and seven_day are null")
+    func decodeResponseWithNullRequiredBuckets() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.nullBucketsJSON)
+
+        #expect(response.fiveHour == nil)
+        #expect(response.sevenDay == nil)
+    }
+
+    // Cycle 3d: Response with only five_hour present
+    @Test("Decodes response where only five_hour is present")
+    func decodeResponseWithPartialBuckets() throws {
+        let json = """
+        {
+          "five_hour": {
+            "utilization": 25.0,
+            "resets_at": "2026-02-08T05:00:00+00:00"
+          },
+          "seven_day": null
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(UsageResponse.self, from: json)
+
+        #expect(response.fiveHour?.utilization == 25.0)
+        #expect(response.sevenDay == nil)
+    }
+
+    // Cycle 3e: Empty response (no fields at all)
+    @Test("Decodes empty JSON object with all buckets nil")
+    func decodeEmptyResponse() throws {
+        let json = "{}".data(using: .utf8)!
+        let response = try JSONDecoder().decode(UsageResponse.self, from: json)
+
+        #expect(response.fiveHour == nil)
+        #expect(response.sevenDay == nil)
+        #expect(response.sevenDayOpus == nil)
+        #expect(response.sevenDaySonnet == nil)
+        #expect(response.extraUsage == nil)
+    }
+
+    // Cycle 3f: Unknown API fields must not cause a throw
+    @Test("Ignores unknown API keys and decodes known fields correctly")
+    func decodeResponseWithUnknownFields() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.unknownFieldsUsageJSON)
+
+        #expect(response.fiveHour?.utilization == 42.0)
+        #expect(response.sevenDay?.utilization == 20.0)
+        #expect(response.sevenDaySonnet?.utilization == 5.0)
+        #expect(response.sevenDayOpus == nil)
+        let extra = try #require(response.extraUsage)
+        #expect(extra.isEnabled == true)
+        #expect(extra.usedCredits == 1250.0)
+        #expect(extra.monthlyLimit == 5000.0)
+    }
+
+    // Cycle 3g: seven_day_sonnet with null resets_at decodes correctly
+    @Test("Decodes seven_day_sonnet with null resets_at in a complete payload")
+    func decodeResponseSonnetNullResetsAt() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.sonnetNullResetsAtJSON)
+
+        let sonnet = try #require(response.sevenDaySonnet)
+        #expect(sonnet.utilization == 10.0)
+        #expect(sonnet.resetsAt == nil)
+        #expect(response.fiveHour?.utilization == 37.0)
+        #expect(response.extraUsage?.isEnabled == false)
+    }
+}
+
+// MARK: - hasAnyUsageData
+
+@Suite("UsageResponse.hasAnyUsageData")
+struct HasAnyUsageDataTests {
+
+    @Test("Returns true when fiveHour is present")
+    func hasFiveHour() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.fullUsageJSON)
+        #expect(response.hasAnyUsageData == true)
+    }
+
+    @Test("Returns true when only sevenDay is present")
+    func hasSevenDayOnly() {
+        let response = UsageResponse(sevenDay: UsageBucket(utilization: 10.0))
+        #expect(response.hasAnyUsageData == true)
+    }
+
+    @Test("Returns true when only extraUsage is enabled")
+    func hasExtraUsageOnly() {
+        let response = UsageResponse(extraUsage: ExtraUsage(isEnabled: true))
+        #expect(response.hasAnyUsageData == true)
+    }
+
+    @Test("Returns false when extraUsage exists but is disabled")
+    func hasDisabledExtraUsageOnly() {
+        let response = UsageResponse(extraUsage: ExtraUsage(isEnabled: false))
+        #expect(response.hasAnyUsageData == false)
+    }
+
+    @Test("Returns false for empty response")
+    func emptyResponse() throws {
+        let json = "{}".data(using: .utf8)!
+        let response = try JSONDecoder().decode(UsageResponse.self, from: json)
+        #expect(response.hasAnyUsageData == false)
+    }
+
+    @Test("Returns false when all buckets are null")
+    func allNullBuckets() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.nullBucketsJSON)
+        #expect(response.hasAnyUsageData == false)
     }
 }
 

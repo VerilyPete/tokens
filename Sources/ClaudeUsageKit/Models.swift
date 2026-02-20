@@ -5,9 +5,9 @@ import Foundation
 /// A single usage bucket (5-hour, 7-day, per-model).
 public struct UsageBucket: Codable, Sendable, Equatable {
     public let utilization: Double
-    public let resetsAt: Date
+    public let resetsAt: Date?
 
-    public init(utilization: Double, resetsAt: Date) {
+    public init(utilization: Double, resetsAt: Date? = nil) {
         self.utilization = max(0.0, min(utilization, 100.0))
         self.resetsAt = resetsAt
     }
@@ -16,14 +16,17 @@ public struct UsageBucket: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawUtilization = try container.decode(Double.self, forKey: .utilization)
         utilization = max(0.0, min(rawUtilization, 100.0))
-        let dateString = try container.decode(String.self, forKey: .resetsAt)
-        guard let date = Date.fromAPI(dateString) else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .resetsAt, in: container,
-                debugDescription: "Invalid ISO 8601 date: \(dateString)"
-            )
+        if let dateString = try container.decodeIfPresent(String.self, forKey: .resetsAt) {
+            guard let date = Date.fromAPI(dateString) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .resetsAt, in: container,
+                    debugDescription: "Invalid ISO 8601 date: \(dateString)"
+                )
+            }
+            resetsAt = date
+        } else {
+            resetsAt = nil
         }
-        resetsAt = date
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -34,15 +37,22 @@ public struct UsageBucket: Codable, Sendable, Equatable {
 
 /// Top-level usage API response.
 public struct UsageResponse: Sendable, Equatable {
-    public let fiveHour: UsageBucket
-    public let sevenDay: UsageBucket
+    public let fiveHour: UsageBucket?
+    public let sevenDay: UsageBucket?
     public let sevenDayOpus: UsageBucket?
     public let sevenDaySonnet: UsageBucket?
     public let extraUsage: ExtraUsage?
 
+    /// Whether this response contains any renderable usage data.
+    /// False when the API returns 200 but all buckets are null/missing.
+    public var hasAnyUsageData: Bool {
+        fiveHour != nil || sevenDay != nil || sevenDayOpus != nil
+            || sevenDaySonnet != nil || (extraUsage?.isEnabled == true)
+    }
+
     public init(
-        fiveHour: UsageBucket,
-        sevenDay: UsageBucket,
+        fiveHour: UsageBucket? = nil,
+        sevenDay: UsageBucket? = nil,
         sevenDayOpus: UsageBucket? = nil,
         sevenDaySonnet: UsageBucket? = nil,
         extraUsage: ExtraUsage? = nil
@@ -66,8 +76,8 @@ extension UsageResponse: Decodable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        fiveHour = try container.decode(UsageBucket.self, forKey: .fiveHour)
-        sevenDay = try container.decode(UsageBucket.self, forKey: .sevenDay)
+        fiveHour = try container.decodeIfPresent(UsageBucket.self, forKey: .fiveHour)
+        sevenDay = try container.decodeIfPresent(UsageBucket.self, forKey: .sevenDay)
         sevenDayOpus = try container.decodeIfPresent(UsageBucket.self, forKey: .sevenDayOpus)
         sevenDaySonnet = try container.decodeIfPresent(UsageBucket.self, forKey: .sevenDaySonnet)
         extraUsage = try container.decodeIfPresent(ExtraUsage.self, forKey: .extraUsage)

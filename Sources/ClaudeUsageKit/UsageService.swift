@@ -32,11 +32,12 @@ public final class UsageService {
     public var subscriptionType: String?
 
     /// Menu bar label — computed from current state.
+    /// Uses `hasAnyUsageData` so we don't imply data is present when all buckets are null.
     public var menuBarLabel: String {
         formatMenuBarLabel(
-            utilization: usage?.fiveHour.utilization,
+            utilization: usage?.fiveHour?.utilization,
             hasError: error != nil,
-            hasData: usage != nil
+            hasData: usage?.hasAnyUsageData ?? false
         )
     }
 
@@ -45,9 +46,9 @@ public final class UsageService {
     private var accessToken: String?
     private var refreshToken: String?
     private var tokenExpiresAt: Date?
-    private nonisolated(unsafe) var pollTask: Task<Void, Never>?
-    private nonisolated(unsafe) var wakeTask: Task<Void, Never>?
-    private nonisolated(unsafe) var wakeObserver: NSObjectProtocol?
+    private var pollTask: Task<Void, Never>?
+    private var wakeTask: Task<Void, Never>?
+    private var wakeObserver: NSObjectProtocol?
     private var isRefreshing = false
     private(set) var consecutiveFailures = 0
 
@@ -88,14 +89,22 @@ public final class UsageService {
     }
 
     deinit {
-        pollTask?.cancel()
-        wakeTask?.cancel()
-        if let wakeObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        MainActor.assumeIsolated {
+            pollTask?.cancel()
+            wakeTask?.cancel()
+            if let wakeObserver {
+                NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            }
         }
     }
 
     // MARK: Polling
+
+    /// Polling interval based on consecutive failure count.
+    /// Returns 300 s after 3+ consecutive failures, 120 s otherwise.
+    var pollInterval: TimeInterval {
+        consecutiveFailures >= 3 ? 300.0 : 120.0
+    }
 
     public func startPolling() {
         // Prevent double-registration: clean up any existing poll + wake observer
@@ -107,7 +116,7 @@ public final class UsageService {
         pollTask = Task {
             while !Task.isCancelled {
                 await fetchUsage()
-                let interval = consecutiveFailures >= 3 ? 300.0 : 120.0
+                let interval = pollInterval
                 try? await Task.sleep(for: .seconds(interval))
             }
         }
@@ -205,6 +214,7 @@ public final class UsageService {
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
 
         // Retry loop: up to 4 attempts (initial + 3 retries) for transient errors
+        var lastResponseBody: String?
         for attempt in 0...3 {
             guard !Task.isCancelled else { return }
             if attempt > 0 {
@@ -222,6 +232,10 @@ public final class UsageService {
                     return
                 }
 
+                let bodyString = String(data: data, encoding: .utf8) ?? "<non-UTF8, \(data.count) bytes>"
+                lastResponseBody = bodyString
+                logger.debug("HTTP \(httpResponse.statusCode) response body: \(bodyString, privacy: .public)")
+
                 switch httpResponse.statusCode {
                 case 200:
                     let decoded = try JSONDecoder().decode(UsageResponse.self, from: data)
@@ -229,7 +243,7 @@ public final class UsageService {
                     lastUpdated = Date()
                     error = nil
                     consecutiveFailures = 0
-                    logger.info("Usage fetched: \(decoded.fiveHour.utilization)%")
+                    logger.info("Usage fetched: \(decoded.fiveHour?.utilization.description ?? "nil")%")
                     return
 
                 case 401:
@@ -288,8 +302,13 @@ public final class UsageService {
                 error = .network(urlError)
                 consecutiveFailures += 1
                 return
-            } catch is DecodingError {
+            } catch let decodingError as DecodingError {
                 // Decoding errors are not transient — don't retry
+                let detail = Self.describeDecodingError(decodingError)
+                logger.error("API response decoding failed: \(detail, privacy: .public)")
+                if let rawBody = lastResponseBody {
+                    logger.error("Raw response body was: \(rawBody, privacy: .public)")
+                }
                 error = .decodingFailed
                 consecutiveFailures += 1
                 return
@@ -360,6 +379,24 @@ public final class UsageService {
             return "\(k)=\(v)"
         }.joined(separator: "&")
         return encoded.data(using: .utf8)
+    }
+
+    // MARK: Decoding Error Diagnostics
+
+    /// Extract a human-readable description from a DecodingError for logging.
+    nonisolated static func describeDecodingError(_ error: DecodingError) -> String {
+        switch error {
+        case .keyNotFound(let key, let context):
+            return "Missing key '\(key.stringValue)' at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+        case .typeMismatch(let type, let context):
+            return "Type mismatch for \(type) at \(context.codingPath.map(\.stringValue).joined(separator: ".")): \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            return "Null value for \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+        case .dataCorrupted(let context):
+            return "Data corrupted at \(context.codingPath.map(\.stringValue).joined(separator: ".")): \(context.debugDescription)"
+        @unknown default:
+            return error.localizedDescription
+        }
     }
 
     // MARK: Version Detection (internal static for testability)

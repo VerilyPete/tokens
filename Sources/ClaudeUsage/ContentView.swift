@@ -138,17 +138,21 @@ struct ContentView: View {
 
     @ViewBuilder
     private func usageContent(_ usage: UsageResponse) -> some View {
-        UsageBarView(
-            label: "5-Hour Session",
-            percentage: usage.fiveHour.utilization,
-            resetsAt: usage.fiveHour.resetsAt
-        )
+        if let fiveHour = usage.fiveHour {
+            UsageBarView(
+                label: "5-Hour Session",
+                percentage: fiveHour.utilization,
+                resetsAt: fiveHour.resetsAt
+            )
+        }
 
-        UsageBarView(
-            label: "7-Day Weekly",
-            percentage: usage.sevenDay.utilization,
-            resetsAt: usage.sevenDay.resetsAt
-        )
+        if let sevenDay = usage.sevenDay {
+            UsageBarView(
+                label: "7-Day Weekly",
+                percentage: sevenDay.utilization,
+                resetsAt: sevenDay.resetsAt
+            )
+        }
 
         if let sonnet = usage.sevenDaySonnet {
             UsageBarView(
@@ -170,6 +174,14 @@ struct ContentView: View {
             extraUsageSection(extra)
         }
 
+        if !usage.hasAnyUsageData, service.error == nil {
+            Text("No usage data available yet")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 8)
+        }
+
         if let error = service.error {
             errorBanner(error)
         }
@@ -184,8 +196,8 @@ struct ContentView: View {
                 .font(.headline)
 
             if let used = extra.usedCredits {
-                let limitText = extra.monthlyLimit.map { String(format: "$%.2f", $0) } ?? "No cap"
-                Text(String(format: "$%.2f / %@", used, limitText))
+                let limitText = extra.monthlyLimit.map { formatCredits($0) } ?? "No cap"
+                Text("\(formatCredits(used)) / \(limitText)")
                     .font(.system(.body, design: .monospaced))
 
                 if extra.monthlyLimit == nil {
