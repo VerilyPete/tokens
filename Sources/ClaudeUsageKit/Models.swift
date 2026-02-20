@@ -5,9 +5,9 @@ import Foundation
 /// A single usage bucket (5-hour, 7-day, per-model).
 public struct UsageBucket: Codable, Sendable, Equatable {
     public let utilization: Double
-    public let resetsAt: Date
+    public let resetsAt: Date?
 
-    public init(utilization: Double, resetsAt: Date) {
+    public init(utilization: Double, resetsAt: Date? = nil) {
         self.utilization = max(0.0, min(utilization, 100.0))
         self.resetsAt = resetsAt
     }
@@ -16,14 +16,17 @@ public struct UsageBucket: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawUtilization = try container.decode(Double.self, forKey: .utilization)
         utilization = max(0.0, min(rawUtilization, 100.0))
-        let dateString = try container.decode(String.self, forKey: .resetsAt)
-        guard let date = Date.fromAPI(dateString) else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .resetsAt, in: container,
-                debugDescription: "Invalid ISO 8601 date: \(dateString)"
-            )
+        if let dateString = try container.decodeIfPresent(String.self, forKey: .resetsAt) {
+            guard let date = Date.fromAPI(dateString) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .resetsAt, in: container,
+                    debugDescription: "Invalid ISO 8601 date: \(dateString)"
+                )
+            }
+            resetsAt = date
+        } else {
+            resetsAt = nil
         }
-        resetsAt = date
     }
 
     private enum CodingKeys: String, CodingKey {

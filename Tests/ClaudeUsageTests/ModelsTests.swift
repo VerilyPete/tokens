@@ -18,7 +18,8 @@ struct UsageBucketTests {
 
         #expect(bucket.utilization == 37.0)
         // 2026-02-08T04:59:59Z = 1770526799 seconds since epoch
-        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770526799) < 1)
+        let resetsAt = try #require(bucket.resetsAt)
+        #expect(abs(resetsAt.timeIntervalSince1970 - 1770526799) < 1)
     }
 
     // Cycle 2b: Decode without fractional seconds
@@ -32,7 +33,8 @@ struct UsageBucketTests {
 
         #expect(bucket.utilization == 50.0)
         // 2026-02-08T05:00:00Z = 1770526800 seconds since epoch
-        #expect(abs(bucket.resetsAt.timeIntervalSince1970 - 1770526800) < 1)
+        let resetsAt = try #require(bucket.resetsAt)
+        #expect(abs(resetsAt.timeIntervalSince1970 - 1770526800) < 1)
     }
 
     // Cycle 2c: Reject malformed date
@@ -88,6 +90,18 @@ struct UsageBucketTests {
     func programmaticInitPreservesValid() {
         let bucket = UsageBucket(utilization: 42.5, resetsAt: Date())
         #expect(bucket.utilization == 42.5)
+    }
+
+    // Cycle 2i: Decode with null resets_at
+    @Test("Decodes bucket with null resets_at as nil date")
+    func decodeBucketWithNullResetsAt() throws {
+        let json = """
+        {"utilization": 0.0, "resets_at": null}
+        """.data(using: .utf8)!
+
+        let bucket = try JSONDecoder().decode(UsageBucket.self, from: json)
+        #expect(bucket.utilization == 0.0)
+        #expect(bucket.resetsAt == nil)
     }
 }
 
