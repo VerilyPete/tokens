@@ -44,7 +44,9 @@ jobs:
 
   sign-and-notarize:
     needs: build-and-test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name == 'push' &&
+      secrets.DEVELOPER_CERT_BASE64 != ''
     runs-on: macos-15
     timeout-minutes: 30
 
@@ -87,7 +89,7 @@ jobs:
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           # Add to search list while preserving existing keychains
-          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
       - name: Build release and sign
         env:
