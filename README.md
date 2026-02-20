@@ -6,6 +6,8 @@ If you use Claude Code heavily, you've probably hit rate limits without warning.
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![Tests](https://img.shields.io/badge/tests-86-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
+<img src="assets/screenshot.png" alt="Claude Usage popover showing usage bars and extra usage credits" width="300">
+
 ## How it works
 
 The app reads your Claude Code OAuth credentials from the macOS keychain (read-only, it never writes to the keychain) and uses them to hit the same usage API that Claude Code itself uses. It handles token refresh automatically, retries with exponential backoff on transient failures, and detects sleep/wake so it doesn't spam errors when your laptop wakes up without a network connection.
