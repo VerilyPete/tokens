@@ -12,5 +12,9 @@
     <string>1.0.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>CFBundleExecutable</key>
+    <string>ClaudeUsage</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
 </dict>
 </plist>

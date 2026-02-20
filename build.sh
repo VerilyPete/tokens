@@ -2,11 +2,41 @@
 set -euo pipefail
 
 # Claude Usage Menu Bar App — Build Script
-# Compiles via SPM, packages into .app bundle, and ad-hoc codesigns.
+# Compiles via SPM, packages into .app bundle, and codesigns.
+# Usage: ./build.sh [--sign <identity>] [--entitlements <file>]
+#   --sign <identity>      Code signing identity (default: "-" for ad-hoc)
+#   --entitlements <file>  Entitlements file for hardened runtime signing
 
 APP_NAME="ClaudeUsage"
 BUILD_DIR=".build/release"
 APP_BUNDLE="${APP_NAME}.app"
+
+# Parse arguments
+SIGN_IDENTITY="-"  # default: ad-hoc
+ENTITLEMENTS_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --sign)
+            if [[ $# -lt 2 ]]; then echo "ERROR: --sign requires an argument"; exit 1; fi
+            SIGN_IDENTITY="$2"
+            shift 2
+            ;;
+        --entitlements)
+            if [[ $# -lt 2 ]]; then echo "ERROR: --entitlements requires an argument"; exit 1; fi
+            ENTITLEMENTS_ARGS=(--entitlements "$2")
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
 echo "=== Claude Usage Build Script ==="
 
@@ -34,9 +64,18 @@ mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 cp "${BUILD_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/"
 cp "Resources/Info.plist" "${APP_BUNDLE}/Contents/"
 
-# Step 5: Ad-hoc codesign
-echo "Codesigning..."
-codesign --sign - "${APP_BUNDLE}"
+# Step 5: Codesign
+echo "Codesigning with identity: ${SIGN_IDENTITY}..."
+if [ "$SIGN_IDENTITY" = "-" ]; then
+    codesign --sign - "${APP_BUNDLE}"
+else
+    codesign \
+        --sign "$SIGN_IDENTITY" \
+        --options runtime \
+        --timestamp \
+        "${ENTITLEMENTS_ARGS[@]}" \
+        "${APP_BUNDLE}"
+fi
 
 echo ""
 echo "=== Build Complete ==="
