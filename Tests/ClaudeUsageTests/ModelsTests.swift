@@ -205,6 +205,49 @@ struct UsageResponseTests {
     }
 }
 
+// MARK: - hasAnyUsageData
+
+@Suite("UsageResponse.hasAnyUsageData")
+struct HasAnyUsageDataTests {
+
+    @Test("Returns true when fiveHour is present")
+    func hasFiveHour() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.fullUsageJSON)
+        #expect(response.hasAnyUsageData == true)
+    }
+
+    @Test("Returns true when only sevenDay is present")
+    func hasSevenDayOnly() {
+        let response = UsageResponse(sevenDay: UsageBucket(utilization: 10.0))
+        #expect(response.hasAnyUsageData == true)
+    }
+
+    @Test("Returns true when only extraUsage is enabled")
+    func hasExtraUsageOnly() {
+        let response = UsageResponse(extraUsage: ExtraUsage(isEnabled: true))
+        #expect(response.hasAnyUsageData == true)
+    }
+
+    @Test("Returns false when extraUsage exists but is disabled")
+    func hasDisabledExtraUsageOnly() {
+        let response = UsageResponse(extraUsage: ExtraUsage(isEnabled: false))
+        #expect(response.hasAnyUsageData == false)
+    }
+
+    @Test("Returns false for empty response")
+    func emptyResponse() throws {
+        let json = "{}".data(using: .utf8)!
+        let response = try JSONDecoder().decode(UsageResponse.self, from: json)
+        #expect(response.hasAnyUsageData == false)
+    }
+
+    @Test("Returns false when all buckets are null")
+    func allNullBuckets() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.nullBucketsJSON)
+        #expect(response.hasAnyUsageData == false)
+    }
+}
+
 // MARK: - Phase 4: OAuthCredentials
 
 @Suite("OAuthCredentials Decoding")

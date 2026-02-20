@@ -32,11 +32,12 @@ public final class UsageService {
     public var subscriptionType: String?
 
     /// Menu bar label — computed from current state.
+    /// Uses `hasAnyUsageData` so we don't imply data is present when all buckets are null.
     public var menuBarLabel: String {
         formatMenuBarLabel(
             utilization: usage?.fiveHour?.utilization,
             hasError: error != nil,
-            hasData: usage != nil
+            hasData: usage?.hasAnyUsageData ?? false
         )
     }
 

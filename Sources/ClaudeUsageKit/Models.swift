@@ -43,6 +43,13 @@ public struct UsageResponse: Sendable, Equatable {
     public let sevenDaySonnet: UsageBucket?
     public let extraUsage: ExtraUsage?
 
+    /// Whether this response contains any renderable usage data.
+    /// False when the API returns 200 but all buckets are null/missing.
+    public var hasAnyUsageData: Bool {
+        fiveHour != nil || sevenDay != nil || sevenDayOpus != nil
+            || sevenDaySonnet != nil || (extraUsage?.isEnabled == true)
+    }
+
     public init(
         fiveHour: UsageBucket? = nil,
         sevenDay: UsageBucket? = nil,

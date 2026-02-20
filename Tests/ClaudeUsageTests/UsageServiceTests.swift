@@ -229,6 +229,22 @@ struct UsageServiceFetchTests {
         #expect(service.menuBarLabel == "--%")
     }
 
+    // Cycle 12f3: menuBarLabel when all buckets are null
+    @Test("menuBarLabel shows '--%' when API returns 200 but all buckets are null")
+    @MainActor
+    func menuBarLabelAllNullBuckets() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+
+        mockNetwork.enqueue(data: TestData.nullBucketsJSON, statusCode: 200)
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        #expect(service.usage?.hasAnyUsageData == false)
+        #expect(service.menuBarLabel == "--%")
+    }
+
     // Cycle 12f: Menu bar label reflects state
     @Test("menuBarLabel updates based on fetched usage")
     @MainActor

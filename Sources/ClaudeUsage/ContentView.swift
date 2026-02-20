@@ -174,6 +174,14 @@ struct ContentView: View {
             extraUsageSection(extra)
         }
 
+        if !usage.hasAnyUsageData, service.error == nil {
+            Text("No usage data available yet")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 8)
+        }
+
         if let error = service.error {
             errorBanner(error)
         }
