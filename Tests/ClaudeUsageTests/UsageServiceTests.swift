@@ -291,6 +291,61 @@ struct UsageServiceFetchTests {
         #expect(mockNetwork.requestHistory[0].httpMethod == "POST")
     }
 
+    // Cycle 12j2: expires_in: 0 gets floored to 60s
+    @Test("Floors expires_in to 60 seconds to prevent refresh loop")
+    @MainActor
+    func expiresInZeroFloored() async {
+        let nearExpiryCreds = TestData.mockCredentials(
+            expiresAt: Date(timeIntervalSinceNow: 600)
+        )
+        let (service, _, mockNetwork) = makeService(credentials: nearExpiryCreds)
+
+        // Proactive refresh returns expires_in: 0
+        mockNetwork.enqueue(data: TestData.tokenRefreshZeroExpiryJSON, statusCode: 200)
+        // Fetch succeeds
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        // Verify that the second fetch still works (refresh + fetch completed)
+        #expect(mockNetwork.requestHistory.count == 2)
+        #expect(mockNetwork.requestHistory[0].httpMethod == "POST") // refresh
+
+        // The key invariant: even with expires_in: 0, we should be able to
+        // do another fetch. Without the floor, tokenExpiresAt would be
+        // in the past immediately, causing perpetual refresh attempts.
+        // With the floor of 60s, at least we have a 60s window.
+        mockNetwork.enqueue(data: TestData.tokenRefreshZeroExpiryJSON, statusCode: 200)
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+        await service.fetchUsage()
+
+        // Service still works (no infinite loop or crash)
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+    }
+
+    // Cycle 12j3: Proactive refresh failure does NOT set error
+    @Test("Proactive refresh failure does not set error on service")
+    @MainActor
+    func proactiveRefreshFailureNoError() async {
+        let nearExpiryCreds = TestData.mockCredentials(
+            expiresAt: Date(timeIntervalSinceNow: 600)
+        )
+        let (service, _, mockNetwork) = makeService(credentials: nearExpiryCreds)
+
+        // Proactive refresh fails
+        mockNetwork.enqueue(data: Data(), statusCode: 400)
+        // Fetch still succeeds (token was still valid)
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        // Error should be nil — the refresh failure should not leak
+        #expect(service.error == nil)
+        #expect(service.usage != nil)
+    }
+
     // Cycle 12k: Refresh failure falls back to keychain re-read
     @Test("Falls back to keychain re-read when refresh fails on 401")
     @MainActor
@@ -446,6 +501,33 @@ struct UsageServiceFetchTests {
         #expect(service.error == nil)
     }
 
+    // Cycle 12o2: reloadCredentials picks up new keychain creds after decodingFailed
+    @Test("reloadCredentials re-reads keychain after decodingFailed error")
+    @MainActor
+    func reloadAfterDecodingFailedUsesNewCredentials() async {
+        let (service, mockKeychain, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials(accessToken: "old-token")
+        )
+
+        // First fetch: API returns 200 with invalid JSON → decodingFailed
+        mockNetwork.enqueue(data: "not json".data(using: .utf8)!, statusCode: 200)
+        await service.fetchUsage()
+        #expect(service.error == .decodingFailed)
+
+        // User runs `claude login` → new credentials in keychain
+        mockKeychain.enqueue(.success(TestData.mockCredentials(accessToken: "new-token")))
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        // Simulates pressing Retry, which now calls reloadCredentials()
+        await service.reloadCredentials()
+
+        #expect(service.usage != nil)
+        #expect(service.error == nil)
+        // Verify the second fetch used the NEW token from keychain, not the old one
+        let lastRequest = mockNetwork.requestHistory.last
+        #expect(lastRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer new-token")
+    }
+
     // Cycle 12p: Network error triggers transient retry
     @Test("Retries on network error then succeeds")
     @MainActor
@@ -581,6 +663,40 @@ struct UsageServiceFetchTests {
         #expect(service.usage != nil)
     }
 
+    // Cycle 12w: reloadCredentials while fetch in-flight keeps error visible
+    @Test("reloadCredentials does not clear error when a fetch is in-flight")
+    @MainActor
+    func reloadCredentialsDuringLoadingKeepsError() async {
+        let mockKeychain = MockKeychainReader()
+        mockKeychain.result = .success(TestData.mockCredentials())
+        let holdingNetwork = HoldingNetworkSession()
+
+        let service = UsageService(
+            keychainReader: mockKeychain,
+            networkSession: holdingNetwork
+        )
+
+        // Start a fetch that suspends at the network call
+        let firstFetch = Task { @MainActor in
+            await service.fetchUsage()
+        }
+        await holdingNetwork.waitForRequest()
+        #expect(service.isLoading == true)
+
+        // Simulate a previous error state
+        service.error = .unauthorized
+
+        // Call reloadCredentials while fetch is in-flight
+        await service.reloadCredentials()
+
+        // Error must NOT have been cleared (UI stays consistent)
+        #expect(service.error == .unauthorized)
+
+        // Release the in-flight fetch
+        holdingNetwork.release(data: TestData.fullUsageJSON, statusCode: 200)
+        await firstFetch.value
+    }
+
     // Cycle 12v: subscriptionType updated on 401 keychain re-read
     @Test("Updates subscriptionType when keychain is re-read after 401")
     @MainActor
@@ -684,5 +800,22 @@ struct ErrorDescriptionTests {
     func usageRefreshFailedDescription() {
         let error = UsageError.refreshFailed("HTTP 400")
         #expect(error.errorDescription == "Token refresh failed: HTTP 400")
+    }
+
+    // requiresReauthentication
+
+    @Test("Auth errors require reauthentication")
+    func authErrorsRequireReauth() {
+        #expect(UsageError.unauthorized.requiresReauthentication == true)
+        #expect(UsageError.forbidden.requiresReauthentication == true)
+        #expect(UsageError.refreshFailed("HTTP 400").requiresReauthentication == true)
+        #expect(UsageError.keychain(.notFound).requiresReauthentication == true)
+    }
+
+    @Test("Transient errors do not require reauthentication")
+    func transientErrorsDoNotRequireReauth() {
+        #expect(UsageError.network(URLError(.timedOut)).requiresReauthentication == false)
+        #expect(UsageError.http(statusCode: 500).requiresReauthentication == false)
+        #expect(UsageError.decodingFailed.requiresReauthentication == false)
     }
 }

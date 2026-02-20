@@ -44,7 +44,7 @@ struct ContentView: View {
 
             Spacer()
 
-            Button(action: { Task { await service.fetchUsage() } }) {
+            Button(action: { Task { await service.reloadCredentials() } }) {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
@@ -193,6 +193,10 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
+            } else {
+                Text("Enabled — no charges yet")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -209,7 +213,13 @@ struct ContentView: View {
             }
 
             Button("Retry") {
-                Task { await service.fetchUsage() }
+                Task {
+                    if error.requiresReauthentication {
+                        await service.reloadCredentials()
+                    } else {
+                        await service.fetchUsage()
+                    }
+                }
             }
             .buttonStyle(.bordered)
         }
