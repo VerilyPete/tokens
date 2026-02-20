@@ -162,11 +162,17 @@ jobs:
           xcrun stapler validate ClaudeUsage.app
           spctl -a -vvv -t execute ClaudeUsage.app
 
+      - name: Package signed app
+        run: |
+          # Create zip with ditto to preserve code signature and extended attributes
+          # (actions/upload-artifact's internal zip strips macOS metadata)
+          ditto -c -k --sequesterRsrc --keepParent ClaudeUsage.app ClaudeUsage-signed.zip
+
       - name: Upload signed app
         uses: actions/upload-artifact@v4
         with:
-          name: ClaudeUsage-signed.app
-          path: ClaudeUsage.app/
+          name: ClaudeUsage-signed
+          path: ClaudeUsage-signed.zip
           retention-days: 30
 
       - name: Clean up signing artifacts
