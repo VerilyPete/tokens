@@ -18,10 +18,12 @@ ENTITLEMENTS_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --sign)
+            if [[ $# -lt 2 ]]; then echo "ERROR: --sign requires an argument"; exit 1; fi
             SIGN_IDENTITY="$2"
             shift 2
             ;;
         --entitlements)
+            if [[ $# -lt 2 ]]; then echo "ERROR: --entitlements requires an argument"; exit 1; fi
             ENTITLEMENTS_ARGS=(--entitlements "$2")
             shift 2
             ;;
