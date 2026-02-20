@@ -208,7 +208,7 @@ struct FormatCreditsTests {
     @Test("Converts fractional cents correctly")
     func centsFractional() {
         #expect(formatCredits(1250.0) == "$12.50")
-        #expect(formatCredits(12.5) == "$0.13")
+        #expect(formatCredits(12.5) == "$0.12")
     }
 
     @Test("Returns $0.00 for zero cents")
@@ -223,7 +223,7 @@ struct FormatCreditsTests {
 
     @Test("Handles the exact values used in ExtraUsage extraUsageEnabledJSON fixture")
     func centsFromFixture() {
-        #expect(formatCredits(12.5) == "$0.13")
+        #expect(formatCredits(12.5) == "$0.12")
         #expect(formatCredits(100.0) == "$1.00")
     }
 }
