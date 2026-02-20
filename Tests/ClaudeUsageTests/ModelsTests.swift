@@ -176,6 +176,33 @@ struct UsageResponseTests {
         #expect(response.sevenDaySonnet == nil)
         #expect(response.extraUsage == nil)
     }
+
+    // Cycle 3f: Unknown API fields must not cause a throw
+    @Test("Ignores unknown API keys and decodes known fields correctly")
+    func decodeResponseWithUnknownFields() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.unknownFieldsUsageJSON)
+
+        #expect(response.fiveHour?.utilization == 42.0)
+        #expect(response.sevenDay?.utilization == 20.0)
+        #expect(response.sevenDaySonnet?.utilization == 5.0)
+        #expect(response.sevenDayOpus == nil)
+        let extra = try #require(response.extraUsage)
+        #expect(extra.isEnabled == true)
+        #expect(extra.usedCredits == 1250.0)
+        #expect(extra.monthlyLimit == 5000.0)
+    }
+
+    // Cycle 3g: seven_day_sonnet with null resets_at decodes correctly
+    @Test("Decodes seven_day_sonnet with null resets_at in a complete payload")
+    func decodeResponseSonnetNullResetsAt() throws {
+        let response = try JSONDecoder().decode(UsageResponse.self, from: TestData.sonnetNullResetsAtJSON)
+
+        let sonnet = try #require(response.sevenDaySonnet)
+        #expect(sonnet.utilization == 10.0)
+        #expect(sonnet.resetsAt == nil)
+        #expect(response.fiveHour?.utilization == 37.0)
+        #expect(response.extraUsage?.isEnabled == false)
+    }
 }
 
 // MARK: - Phase 4: OAuthCredentials

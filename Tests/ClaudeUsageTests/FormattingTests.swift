@@ -187,4 +187,43 @@ struct MenuBarLabelTests {
         // Error + cached data → show the cached percentage, not "!!"
         #expect(formatMenuBarLabel(utilization: 37, hasError: true, hasData: true) == "37%")
     }
+
+    @Test("Shows '--%' when hasData is true but utilization is nil")
+    func menuBarLabelDataWithNoUtilization() {
+        // Covers the case where usage != nil but usage.fiveHour == nil
+        #expect(formatMenuBarLabel(utilization: nil, hasError: false, hasData: true) == "--%")
+    }
+}
+
+// MARK: - formatCredits
+
+@Suite("formatCredits")
+struct FormatCreditsTests {
+
+    @Test("Converts cents to dollars with 2 decimal places")
+    func centsToWholeDollars() {
+        #expect(formatCredits(1000.0) == "$10.00")
+    }
+
+    @Test("Converts fractional cents correctly")
+    func centsFractional() {
+        #expect(formatCredits(1250.0) == "$12.50")
+        #expect(formatCredits(12.5) == "$0.13")
+    }
+
+    @Test("Returns $0.00 for zero cents")
+    func centsZero() {
+        #expect(formatCredits(0.0) == "$0.00")
+    }
+
+    @Test("Handles large cent values")
+    func centsLarge() {
+        #expect(formatCredits(100000.0) == "$1000.00")
+    }
+
+    @Test("Handles the exact values used in ExtraUsage extraUsageEnabledJSON fixture")
+    func centsFromFixture() {
+        #expect(formatCredits(12.5) == "$0.13")
+        #expect(formatCredits(100.0) == "$1.00")
+    }
 }

@@ -225,6 +225,57 @@ enum TestData {
     }
     """.data(using: .utf8)!
 
+    /// Full API response containing unknown keys the decoder must ignore.
+    static let unknownFieldsUsageJSON = """
+    {
+      "five_hour": {
+        "utilization": 42.0,
+        "resets_at": "2026-02-08T04:59:59.000000+00:00"
+      },
+      "seven_day": {
+        "utilization": 20.0,
+        "resets_at": "2026-02-12T14:59:59.771647+00:00"
+      },
+      "seven_day_sonnet": {
+        "utilization": 5.0,
+        "resets_at": "2026-02-13T20:59:59.771655+00:00"
+      },
+      "iguana_necktie": "unexpected_value",
+      "seven_day_oauth_apps": {"utilization": 99.0, "resets_at": null},
+      "seven_day_cowork": null,
+      "extra_usage": {
+        "is_enabled": true,
+        "monthly_limit": 5000.0,
+        "used_credits": 1250.0,
+        "utilization": 25.0
+      }
+    }
+    """.data(using: .utf8)!
+
+    /// Full response where seven_day_sonnet is present but has null resets_at.
+    static let sonnetNullResetsAtJSON = """
+    {
+      "five_hour": {
+        "utilization": 37.0,
+        "resets_at": "2026-02-08T04:59:59.000000+00:00"
+      },
+      "seven_day": {
+        "utilization": 26.0,
+        "resets_at": "2026-02-12T14:59:59.771647+00:00"
+      },
+      "seven_day_sonnet": {
+        "utilization": 10.0,
+        "resets_at": null
+      },
+      "extra_usage": {
+        "is_enabled": false,
+        "monthly_limit": null,
+        "used_credits": null,
+        "utilization": null
+      }
+    }
+    """.data(using: .utf8)!
+
     /// Build a mock OAuthCredentials with sensible defaults.
     static func mockCredentials(
         accessToken: String = "test-access-token",

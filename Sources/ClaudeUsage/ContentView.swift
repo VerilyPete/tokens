@@ -188,8 +188,8 @@ struct ContentView: View {
                 .font(.headline)
 
             if let used = extra.usedCredits {
-                let limitText = extra.monthlyLimit.map { String(format: "$%.2f", $0 / 100.0) } ?? "No cap"
-                Text(String(format: "$%.2f / %@", used / 100.0, limitText))
+                let limitText = extra.monthlyLimit.map { formatCredits($0) } ?? "No cap"
+                Text("\(formatCredits(used)) / \(limitText)")
                     .font(.system(.body, design: .monospaced))
 
                 if extra.monthlyLimit == nil {

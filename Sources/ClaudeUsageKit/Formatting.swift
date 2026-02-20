@@ -82,3 +82,11 @@ public func formatMenuBarLabel(
     if hasError { return "!!" }
     return "--%"
 }
+
+// MARK: - Credits Formatting
+
+/// Convert a cents value (Double) to a display dollar string.
+/// Examples: 1250.0 → "$12.50", 0.0 → "$0.00"
+public func formatCredits(_ cents: Double) -> String {
+    String(format: "$%.2f", cents / 100.0)
+}

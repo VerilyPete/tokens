@@ -204,6 +204,31 @@ struct UsageServiceFetchTests {
         #expect(service.consecutiveFailures == 2)
     }
 
+    // Cycle 12f2: menuBarLabel when usage present but fiveHour is nil
+    @Test("menuBarLabel shows '--%' when usage is set but fiveHour bucket is absent")
+    @MainActor
+    func menuBarLabelNoFiveHour() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+
+        let noFiveHourJSON = """
+        {
+          "seven_day": {
+            "utilization": 26.0,
+            "resets_at": "2026-02-12T14:59:59.771647+00:00"
+          }
+        }
+        """.data(using: .utf8)!
+
+        mockNetwork.enqueue(data: noFiveHourJSON, statusCode: 200)
+        await service.fetchUsage()
+
+        #expect(service.usage != nil)
+        #expect(service.usage?.fiveHour == nil)
+        #expect(service.menuBarLabel == "--%")
+    }
+
     // Cycle 12f: Menu bar label reflects state
     @Test("menuBarLabel updates based on fetched usage")
     @MainActor
@@ -817,5 +842,152 @@ struct ErrorDescriptionTests {
         #expect(UsageError.network(URLError(.timedOut)).requiresReauthentication == false)
         #expect(UsageError.http(statusCode: 500).requiresReauthentication == false)
         #expect(UsageError.decodingFailed.requiresReauthentication == false)
+    }
+}
+
+// MARK: - describeDecodingError
+
+@Suite("UsageService.describeDecodingError")
+struct DescribeDecodingErrorTests {
+
+    @Test("Describes keyNotFound with key name and coding path")
+    func keyNotFound() {
+        let key = AnyCodingKey("some_field")
+        let context = DecodingError.Context(
+            codingPath: [AnyCodingKey("root"), AnyCodingKey("child")],
+            debugDescription: "Key not found"
+        )
+        let result = UsageService.describeDecodingError(.keyNotFound(key, context))
+        #expect(result.contains("some_field"))
+        #expect(result.contains("root"))
+        #expect(result.contains("child"))
+    }
+
+    @Test("Describes typeMismatch with type name and coding path")
+    func typeMismatch() {
+        let context = DecodingError.Context(
+            codingPath: [AnyCodingKey("utilization")],
+            debugDescription: "Expected Double but found String"
+        )
+        let result = UsageService.describeDecodingError(.typeMismatch(Double.self, context))
+        #expect(result.contains("Double"))
+        #expect(result.contains("utilization"))
+        #expect(result.contains("Expected Double but found String"))
+    }
+
+    @Test("Describes valueNotFound with type name and coding path")
+    func valueNotFound() {
+        let context = DecodingError.Context(
+            codingPath: [AnyCodingKey("resets_at")],
+            debugDescription: "Value required but found null"
+        )
+        let result = UsageService.describeDecodingError(.valueNotFound(Date.self, context))
+        #expect(result.contains("Date"))
+        #expect(result.contains("resets_at"))
+    }
+
+    @Test("Describes dataCorrupted with coding path and debug description")
+    func dataCorrupted() {
+        let context = DecodingError.Context(
+            codingPath: [AnyCodingKey("resets_at")],
+            debugDescription: "Invalid ISO 8601 date: garbage"
+        )
+        let result = UsageService.describeDecodingError(.dataCorrupted(context))
+        #expect(result.contains("resets_at"))
+        #expect(result.contains("Invalid ISO 8601 date: garbage"))
+    }
+}
+
+/// Minimal CodingKey conformer for constructing DecodingError test values.
+private struct AnyCodingKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+    init(_ string: String) { stringValue = string }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
+}
+
+// MARK: - pollInterval
+
+@Suite("UsageService.pollInterval")
+struct PollIntervalTests {
+
+    @Test("Returns 120 seconds with zero consecutive failures")
+    @MainActor
+    func pollIntervalDefault() {
+        let (service, _, _) = makeServiceForPollTest()
+        #expect(service.pollInterval == 120.0)
+    }
+
+    @Test("Returns 120 seconds with fewer than 3 consecutive failures")
+    @MainActor
+    func pollIntervalBelowThreshold() async {
+        let (service, _, mockNetwork) = makeServiceForPollTest()
+        service.retryBaseDelay = 0
+
+        mockNetwork.enqueue(data: Data(), statusCode: 403)
+        await service.fetchUsage()
+        mockNetwork.enqueue(data: Data(), statusCode: 403)
+        await service.fetchUsage()
+
+        #expect(service.consecutiveFailures == 2)
+        #expect(service.pollInterval == 120.0)
+    }
+
+    @Test("Returns 300 seconds at exactly 3 consecutive failures")
+    @MainActor
+    func pollIntervalAtThreshold() async {
+        let (service, _, mockNetwork) = makeServiceForPollTest()
+        service.retryBaseDelay = 0
+
+        for _ in 0..<3 {
+            mockNetwork.enqueue(data: Data(), statusCode: 403)
+            await service.fetchUsage()
+        }
+
+        #expect(service.consecutiveFailures == 3)
+        #expect(service.pollInterval == 300.0)
+    }
+
+    @Test("Returns 300 seconds above 3 consecutive failures")
+    @MainActor
+    func pollIntervalAboveThreshold() async {
+        let (service, _, mockNetwork) = makeServiceForPollTest()
+        service.retryBaseDelay = 0
+
+        for _ in 0..<5 {
+            mockNetwork.enqueue(data: Data(), statusCode: 403)
+            await service.fetchUsage()
+        }
+
+        #expect(service.consecutiveFailures == 5)
+        #expect(service.pollInterval == 300.0)
+    }
+
+    @Test("Resets to 120 seconds after a success following failures")
+    @MainActor
+    func pollIntervalResetsOnSuccess() async {
+        let (service, _, mockNetwork) = makeServiceForPollTest()
+        service.retryBaseDelay = 0
+
+        for _ in 0..<3 {
+            mockNetwork.enqueue(data: Data(), statusCode: 403)
+            await service.fetchUsage()
+        }
+        #expect(service.pollInterval == 300.0)
+
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+        await service.fetchUsage()
+        #expect(service.consecutiveFailures == 0)
+        #expect(service.pollInterval == 120.0)
+    }
+
+    @MainActor
+    private func makeServiceForPollTest() -> (UsageService, MockKeychainReader, MockNetworkSession) {
+        let mockKeychain = MockKeychainReader()
+        mockKeychain.result = .success(TestData.mockCredentials())
+        let mockNetwork = MockNetworkSession()
+        let service = UsageService(keychainReader: mockKeychain, networkSession: mockNetwork)
+        return (service, mockKeychain, mockNetwork)
     }
 }

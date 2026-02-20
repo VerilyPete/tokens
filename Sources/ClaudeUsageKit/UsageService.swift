@@ -97,6 +97,12 @@ public final class UsageService {
 
     // MARK: Polling
 
+    /// Polling interval based on consecutive failure count.
+    /// Returns 300 s after 3+ consecutive failures, 120 s otherwise.
+    var pollInterval: TimeInterval {
+        consecutiveFailures >= 3 ? 300.0 : 120.0
+    }
+
     public func startPolling() {
         // Prevent double-registration: clean up any existing poll + wake observer
         stopPolling()
@@ -107,7 +113,7 @@ public final class UsageService {
         pollTask = Task {
             while !Task.isCancelled {
                 await fetchUsage()
-                let interval = consecutiveFailures >= 3 ? 300.0 : 120.0
+                let interval = pollInterval
                 try? await Task.sleep(for: .seconds(interval))
             }
         }
