@@ -73,7 +73,7 @@ else
         --sign "$SIGN_IDENTITY" \
         --options runtime \
         --timestamp \
-        "${ENTITLEMENTS_ARGS[@]}" \
+        ${ENTITLEMENTS_ARGS[@]+"${ENTITLEMENTS_ARGS[@]}"} \
         "${APP_BUNDLE}"
 fi
 
