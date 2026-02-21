@@ -6,6 +6,8 @@ import ClaudeUsageKit
 struct ContentView: View {
     let service: UsageService
 
+    @State private var loginItemError: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             headerRow
@@ -24,6 +26,14 @@ struct ContentView: View {
         }
         .padding()
         .frame(width: 300)
+        .alert("Launch at Login", isPresented: Binding(
+            get: { loginItemError != nil },
+            set: { if !$0 { loginItemError = nil } }
+        )) {
+            Button("OK") { loginItemError = nil }
+        } message: {
+            Text(loginItemError ?? "")
+        }
     }
 
     // MARK: - Header
@@ -273,7 +283,15 @@ struct ContentView: View {
             Toggle("Launch at Login", isOn: Binding(
                 get: { SMAppService.mainApp.status == .enabled },
                 set: { newValue in
-                    try? newValue ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
+                    do {
+                        if newValue {
+                            try SMAppService.mainApp.register()
+                        } else {
+                            try SMAppService.mainApp.unregister()
+                        }
+                    } catch {
+                        loginItemError = error.localizedDescription
+                    }
                 }
             ))
             .toggleStyle(.checkbox)
