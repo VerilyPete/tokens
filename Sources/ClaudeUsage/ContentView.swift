@@ -1,4 +1,5 @@
 import SwiftUI
+import ServiceManagement
 import ClaudeUsageKit
 
 /// The main popover content shown when the menu bar icon is clicked.
@@ -268,6 +269,15 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Toggle("Launch at Login", isOn: Binding(
+                get: { SMAppService.mainApp.status == .enabled },
+                set: { newValue in
+                    try? newValue ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
+                }
+            ))
+            .toggleStyle(.checkbox)
+            .font(.caption)
 
             Button("Reload Credentials") {
                 Task { await service.reloadCredentials() }
