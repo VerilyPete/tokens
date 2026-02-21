@@ -6,7 +6,6 @@ import ClaudeUsageKit
 struct ContentView: View {
     let service: UsageService
 
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginItemError: String?
 
     var body: some View {
@@ -281,10 +280,9 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Toggle("Launch at Login", isOn: $launchAtLogin)
-                .toggleStyle(.checkbox)
-                .font(.caption)
-                .onChange(of: launchAtLogin) { _, newValue in
+            Toggle("Launch at Login", isOn: Binding(
+                get: { SMAppService.mainApp.status == .enabled },
+                set: { newValue in
                     do {
                         if newValue {
                             try SMAppService.mainApp.register()
@@ -292,10 +290,12 @@ struct ContentView: View {
                             try SMAppService.mainApp.unregister()
                         }
                     } catch {
-                        launchAtLogin = !newValue
                         loginItemError = error.localizedDescription
                     }
                 }
+            ))
+            .toggleStyle(.checkbox)
+            .font(.caption)
 
             Button("Reload Credentials") {
                 Task { await service.reloadCredentials() }
