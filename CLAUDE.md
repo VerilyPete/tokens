@@ -10,7 +10,7 @@ Claude Usage is a native macOS menu bar app that displays Claude Pro/Max subscri
 
 ```bash
 swift build                              # Debug build
-swift test                               # All 86 tests
+swift test                               # All 132 tests
 swift test --filter FormattingTests      # Run one test suite
 swift test --filter testFetchSuccess     # Run single test
 ./build.sh                               # Release build + .app bundle (ad-hoc codesigned)
@@ -31,7 +31,7 @@ swift test --filter testFetchSuccess     # Run single test
 ### ClaudeUsage (Sources/ClaudeUsage/) — UI shell
 
 - **ClaudeUsageApp.swift** — `@main`, `MenuBarExtra` with `.window` style. Polling starts in `UsageService.init()` (not `.onAppear`, since MenuBarExtra fires it lazily).
-- **ContentView.swift** — Popover with usage bars, error-specific help (setup guide for missing credentials, keychain access help), graceful fallback to cached data on transient errors.
+- **ContentView.swift** — Popover with usage bars, error-specific help (setup guide for missing credentials, keychain access help), graceful fallback to cached data on transient errors, Launch at Login toggle via `SMAppService`.
 - **UsageBarView.swift** — Reusable color-coded progress bar.
 
 ### Tests (Tests/ClaudeUsageTests/)
