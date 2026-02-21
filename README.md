@@ -78,7 +78,7 @@ GitHub Actions on `macos-15` with Xcode 16.4. Every push to main runs build, tes
 
 ## How it was built
 
-This project was built almost entirely by Claude Code with a human holding the steering wheel (and occasionally pumping the brakes). The `plans/` directory tells the story:
+This project was built almost entirely by Claude Code in web or iOS-based sessions with a human holding the steering wheel (and occasionally pumping the brakes). I cheated and swapped over to Claude Code CLI to knock out signing & notarization. The `plans/` directory tells the story:
 
 **PLAN.md** is the original implementation plan. It started with research into [claude-monitor](https://github.com/rjwalters/claude-monitor) (an existing Python tool for the same purpose) to learn the API endpoints, keychain structure, and edge cases, then designed a clean-room Swift implementation from scratch. The plan went through four rounds of review and revision before any code was written.
 
