@@ -76,10 +76,14 @@ ENTITLEMENTS_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --sign)
+            # [Updated: actual implementation adds argument validation guards]
+            if [[ $# -lt 2 ]]; then echo "ERROR: --sign requires an argument"; exit 1; fi
             SIGN_IDENTITY="$2"
             shift 2
             ;;
         --entitlements)
+            # [Updated: actual implementation adds argument validation guards]
+            if [[ $# -lt 2 ]]; then echo "ERROR: --entitlements requires an argument"; exit 1; fi
             ENTITLEMENTS_ARGS=(--entitlements "$2")
             shift 2
             ;;
@@ -107,14 +111,14 @@ else
         --sign "$SIGN_IDENTITY" \
         --options runtime \
         --timestamp \
-        "${ENTITLEMENTS_ARGS[@]}" \
+        ${ENTITLEMENTS_ARGS[@]+"${ENTITLEMENTS_ARGS[@]}"} \ # [Updated: uses ${arr[@]+"${arr[@]}"} pattern instead of bare "${arr[@]}" — safer under set -u when array is empty, because bash 4.x (macOS default) treats an empty array expansion as "unbound variable"]
         "${APP_BUNDLE}"
 fi
 ```
 
 **Notes:**
 - Uses a bash array (`ENTITLEMENTS_ARGS`) instead of string interpolation to correctly handle paths with spaces.
-- `ENTITLEMENTS_ARGS=()` is initialized empty so `set -u` (from `set -euo pipefail`) does not trigger an unbound variable error.
+- `ENTITLEMENTS_ARGS=()` is initialized empty so `set -u` (from `set -euo pipefail`) does not trigger an unbound variable error. **[Updated: the actual expansion uses `${ENTITLEMENTS_ARGS[@]+"${ENTITLEMENTS_ARGS[@]}"}` — the `+` operator provides an additional safeguard under bash 4.x, where `"${arr[@]}"` on an empty array triggers unbound-variable errors despite the initialization.]**
 - `--force` is omitted because `build.sh` creates a fresh bundle (`rm -rf`) so re-signing is unnecessary.
 - Supports `--` as end-of-options marker.
 
@@ -142,6 +146,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false  # **[Updated]** Added as later security hardening — prevents the GITHUB_TOKEN from persisting in the local git config, reducing the attack surface if a subsequent step is compromised.
 
       - name: Cache SPM dependencies
         uses: actions/cache@v4
@@ -189,6 +195,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false  # **[Updated]** Same security hardening as build-and-test checkout.
 
       - name: Cache SPM dependencies
         uses: actions/cache@v4
@@ -290,11 +298,19 @@ jobs:
           xcrun stapler validate ClaudeUsage.app
           spctl -a -vvv -t execute ClaudeUsage.app
 
+      - name: Package signed app
+        run: |
+          # **[Updated]** Added this step. `actions/upload-artifact` internally re-zips using a method
+          # that strips macOS extended attributes (resource forks, quarantine bits), which invalidates
+          # code signatures. Using `ditto` to create a zip first preserves all metadata, then the
+          # artifact upload just wraps an already-correct zip.
+          ditto -c -k --sequesterRsrc --keepParent ClaudeUsage.app ClaudeUsage-signed.zip
+
       - name: Upload signed app
         uses: actions/upload-artifact@v4
         with:
-          name: ClaudeUsage-signed.app
-          path: ClaudeUsage.app/
+          name: ClaudeUsage-signed  # **[Updated]** Was `ClaudeUsage-signed.app`. Changed to `ClaudeUsage-signed` because the artifact is now a zip file, not a raw .app directory.
+          path: ClaudeUsage-signed.zip  # **[Updated]** Was `ClaudeUsage.app/` (raw directory). Now uploads the pre-zipped file to preserve code signature integrity (see Package step above).
           retention-days: 30
 
       - name: Clean up signing artifacts
@@ -321,9 +337,9 @@ If entitlements are ever needed in the future, create `Resources/ClaudeUsage.ent
 
 ## Key Design Decisions
 
-1. **Two-job pipeline**: `build-and-test` runs on all pushes/PRs (fast feedback, uploads unsigned artifact for testing); `sign-and-notarize` runs only on main pushes (avoids burning signing resources on PRs and avoids needing secrets in PR workflows from forks).
+1. **Two-job pipeline** **[Updated: now a three-job pipeline after RELEASE_PLAN.md added a `release` job]**: `build-and-test` runs on all pushes/PRs (fast feedback, uploads unsigned artifact for testing); `sign-and-notarize` runs only on main pushes (avoids burning signing resources on PRs and avoids needing secrets in PR workflows from forks); `release` runs on GitHub Release events (stamps version, builds, signs, notarizes, uploads zip + checksum to the release).
 
-2. **No `--deep` flag**: Deprecated since macOS 13 and causes problems. Since this app has no nested frameworks or helpers, a single `codesign` on the .app bundle is sufficient.
+2. **No `--deep` flag for signing**: Deprecated since macOS 13 and causes problems when *signing*. Since this app has no nested frameworks or helpers, a single `codesign` on the .app bundle is sufficient. **[Updated]** Clarified that this guidance applies to signing only. The *verification* steps (`codesign --verify --deep --strict`) do use `--deep` because it is harmless and conventional there -- it tells `codesign` to recursively verify nested code, which is a read-only check. The deprecation concerns apply to `codesign --sign --deep`, which would recursively re-sign nested bundles in an uncontrolled order.
 
 3. **`ditto` for zip creation**: Standard `zip` corrupts macOS resource forks and causes "Invalid signature" notarization failures.
 
@@ -353,6 +369,6 @@ If entitlements are ever needed in the future, create `Resources/ClaudeUsage.ent
 1. Add `CFBundleExecutable` and `CFBundlePackageType` to `Resources/Info.plist` (one-time)
 2. Create secrets in GitHub repo settings (one-time)
 3. Modify `build.sh` to accept `--sign` and `--entitlements` flags
-4. Update `ci.yml` with the two-job pipeline
+4. Update `ci.yml` with the two-job pipeline **[Updated: now three-job after RELEASE_PLAN.md]**
 5. Push to main → CI builds, tests, signs, notarizes, uploads signed artifact
 6. Download the signed `.app` from GitHub Actions artifacts — no more Gatekeeper workarounds

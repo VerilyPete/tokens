@@ -45,8 +45,11 @@ RED:   testFetchWhileAlreadyLoading — set isLoading = true manually, call fetc
 GREEN: Add `guard !isLoading else { return }` before `isLoading = true`
 ```
 
-Note: We can't set `isLoading` directly from tests since it's a public var. The test will instead trigger this by calling `fetchUsage()` twice — the mock will have a deliberate delay on the first call so the second call hits the guard. Actually, since `isLoading` is a public `var`, we CAN set it directly in tests:
+**[Updated: the note below is outdated. `isLoading` is actually `public private(set) var`, so tests cannot set it directly. The actual test (`testFetchWhileAlreadyLoading`) uses a `HoldingNetworkSession` mock to hold the first fetch in-flight while attempting a second call, confirming the guard prevents concurrent fetches.]**
+
+~~Note: We can't set `isLoading` directly from tests since it's a public var. The test will instead trigger this by calling `fetchUsage()` twice — the mock will have a deliberate delay on the first call so the second call hits the guard. Actually, since `isLoading` is a public `var`, we CAN set it directly in tests:~~
 ```swift
+// [Updated: actual test uses HoldingNetworkSession, not direct assignment]
 service.isLoading = true
 await service.fetchUsage()
 #expect(mockNetwork.requestHistory.count == 0)
@@ -70,7 +73,7 @@ public func startPolling() {
     pollTask = Task {
         while !Task.isCancelled {
             await fetchUsage()
-            let interval = consecutiveFailures >= 3 ? 300.0 : 120.0
+            let interval = consecutiveFailures >= 3 ? 600.0 : 300.0  // **[Updated]** Actual intervals are 600s/300s, not 300s/120s. Changed during implementation to be less aggressive with polling.
             try? await Task.sleep(for: .seconds(interval))
         }
     }
@@ -107,6 +110,8 @@ GREEN: Add `subscriptionType = creds.subscriptionType` in the 401 keychain re-re
 | `UsageServiceTests.swift` | 36 | 39 | +3 (cycles 10d, 12u, 12v) |
 | **Total** | **83** | **86** | **+3** |
 
+**[Updated]** Actual test count after all subsequent plans (TDD_PLAN, SIGNING_PLAN, RELEASE_PLAN, etc.) is **132 tests in 20 suites**. The 83-to-86 delta above was correct at the time this plan was written; later plans added 46 more tests.
+
 ---
 
 ## Part 2: GitHub Actions CI
@@ -128,22 +133,24 @@ Add a GitHub Actions workflow that builds, tests, and packages the app on every 
 
 #### Single job: `build-and-test`
 
+**[Updated]** The actual workflow now has three jobs, not one. A `sign-and-notarize` job (added by SIGNING_PLAN.md) runs after `build-and-test` on pushes to `main`, handling certificate import, codesigning, Apple notarization, and stapling. A `release` job (added by RELEASE_PLAN.md) triggers on `release` events, stamps the version from the git tag, builds, tests, signs, notarizes, and uploads the zip + checksum to the GitHub Release. Both later jobs also use `persist-credentials: false` on checkout. The workflow also gained a `release: types: [published]` trigger for the release job.
+
 | Step | Command | Why |
 |---|---|---|
-| 1. Checkout | `actions/checkout@v4` | Get the code |
+| 1. Checkout | `actions/checkout@v4` with `persist-credentials: false` **[Updated: added later as security hardening — prevents the GITHUB_TOKEN from being persisted in the local git config, reducing risk of credential leakage in subsequent steps]** | Get the code |
 | 2. Cache SPM | `actions/cache@v4` on `.build` + SPM caches | Skip dependency resolution on cache hit |
 | 3. Build (debug) | `swift build` | Fast compilation check |
-| 4. Test | `swift test` | Run all 86 tests, `timeout-minutes: 10` safety net |
+| 4. Test | `swift test` | Run all 132 tests **[Updated: 86 at time of plan; now 132 after later plans added tests]**, `timeout-minutes: 10` safety net |
 | 5. Build (release + bundle) | `./build.sh` | Full integration: release binary, .app bundle, ad-hoc codesign |
 | 6. Upload artifact | `actions/upload-artifact@v4` on `ClaudeUsage.app/` | Downloadable .app from any CI run |
 
 #### Cache strategy
 
 - **Path**: `.build`, `~/Library/Caches/org.swift.swiftpm`, `~/Library/org.swift.swiftpm`
-- **Key**: `macos-spm-${{ hashFiles('Package.swift') }}`
+- **Key**: `macos-spm-${{ hashFiles('Package.swift') }}` **[Updated: actual cache key is `macos-spm-${{ hashFiles('Package.swift', 'Package.resolved') }}` — includes `Package.resolved` in the hash for forward compatibility, even though no `Package.resolved` currently exists (hashFiles returns empty string for missing files)]**
 - **Restore key**: `macos-spm-` (partial hit)
 
-No `Package.resolved` exists (no external dependencies), so we key on `Package.swift`.
+No `Package.resolved` exists (no external dependencies), so we key on `Package.swift`. **[Updated: see above — actual implementation defensively includes `Package.resolved` in the hash key.]**
 
 #### Artifact
 
@@ -151,7 +158,7 @@ Upload `ClaudeUsage.app/` with 7-day retention. Downloadable from any successful
 
 ### File to create
 
-1. **`.github/workflows/ci.yml`** — single workflow file (~50 lines)
+1. **`.github/workflows/ci.yml`** — single workflow file (~50 lines) **[Updated: actual file is ~360 lines due to `sign-and-notarize` and `release` jobs added by later plans]**
 
 ---
 

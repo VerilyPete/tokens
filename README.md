@@ -76,7 +76,7 @@ The codebase is about 1,400 lines of Swift split into three targets.
 
 ## CI/CD
 
-GitHub Actions on `macos-15` with Xcode 16.4. Every push to main runs build, test, and a full Developer ID signing and notarization pass. Creating a GitHub Release with a `v#.#.#` tag triggers the release job, which stamps the version into Info.plist, builds, signs, notarizes, and uploads the zip with a SHA-256 checksum to the release page. Artifacts are permanent, not the 30-day expiring kind.
+GitHub Actions runners are using `macos-15` with Xcode 16.4. Every push to main runs build, test, and a full Developer ID signing and notarization pass. Creating a GitHub Release with a `v#.#.#` tag triggers the release job, which stamps the version into Info.plist, builds, signs, notarizes, and uploads the zip with a SHA-256 checksum to the release page. Artifacts are permanent, not the 30-day expiring kind.
 
 ## How it was built
 
@@ -84,7 +84,7 @@ This project was built almost entirely by Claude Code with a human holding the s
 
 **PLAN.md** is the original implementation plan. It started with research into [claude-monitor](https://github.com/rjwalters/claude-monitor) (an existing Python tool for the same purpose) to learn the API endpoints, keychain structure, and edge cases, then designed a clean-room Swift implementation from scratch. The plan went through four rounds of review and revision before any code was written.
 
-**TDD_PLAN.md** restructured the implementation into strict red/green/refactor cycles. All testable logic was extracted into a library target with protocol-based DI so the test suite runs without touching the network or keychain.
+**TDD_PLAN.md** is what happens when you finish four rounds of revisions on your original plan and realize that you didn't specify that you'll be building as red/green TDD. This plan restructured the implementation into strict red/green/refactor cycles. All testable logic was extracted into a library target with protocol-based DI so the test suite runs without touching the network or keychain.
 
 **CI_PLAN.md** added GitHub Actions CI and folded in four bug fixes that came out of a Qodo code review.
 
