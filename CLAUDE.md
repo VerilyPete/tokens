@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Claude Usage is a native macOS menu bar app that displays Claude Pro/Max subscription API usage. It polls the Claude Code OAuth API every 2 minutes and shows a percentage in the menu bar with a detailed popover. Built with Swift 6, SwiftUI, zero external dependencies, macOS 14+ (Sonoma).
+Claude Usage is a native macOS menu bar app that displays Claude Pro/Max subscription API usage. It polls the Claude Code OAuth API every 5 minutes and shows a percentage in the menu bar with a detailed popover. Built with Swift 6, SwiftUI, zero external dependencies, macOS 14+ (Sonoma).
 
 ## Build & Test Commands
 

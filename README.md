@@ -2,7 +2,7 @@
 
 A macOS menu bar app that shows your Claude Pro/Max subscription usage at a glance.
 
-If you use Claude Code heavily, you've probably hit rate limits without warning. Claude Usage sits in your menu bar and polls the Claude API every two minutes, showing your current 5-hour utilization as a simple percentage. Click it to see the full breakdown: 5-hour rolling, 7-day weekly, per-model Sonnet/Opus limits, and extra usage credits if you have them enabled. The bars change color as you approach your limits (green, yellow, orange, red) so you can tell at a glance whether it's a good time to kick off that big refactor.
+If you use Claude Code heavily, you've probably hit rate limits without warning. Claude Usage sits in your menu bar and polls the Claude API every five minutes, showing your current 5-hour utilization as a simple percentage. Click it to see the full breakdown: 5-hour rolling, 7-day weekly, per-model Sonnet/Opus limits, and extra usage credits if you have them enabled. The bars change color as you approach your limits (green, yellow, orange, red) so you can tell at a glance whether it's a good time to kick off that big refactor.
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![Tests](https://img.shields.io/badge/tests-132-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 

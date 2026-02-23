@@ -101,9 +101,9 @@ public final class UsageService {
     // MARK: Polling
 
     /// Polling interval based on consecutive failure count.
-    /// Returns 300 s after 3+ consecutive failures, 120 s otherwise.
+    /// Returns 600 s after 3+ consecutive failures, 300 s otherwise.
     var pollInterval: TimeInterval {
-        consecutiveFailures >= 3 ? 300.0 : 120.0
+        consecutiveFailures >= 3 ? 600.0 : 300.0
     }
 
     public func startPolling() {

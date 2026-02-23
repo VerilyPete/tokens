@@ -896,14 +896,14 @@ struct PollIntervalTests {
         return (service, mockKeychain, mockNetwork)
     }
 
-    @Test("Returns 120 seconds with zero consecutive failures")
+    @Test("Returns 300 seconds with zero consecutive failures")
     @MainActor
     func pollIntervalDefault() {
         let (service, _, _) = makeService()
-        #expect(service.pollInterval == 120.0)
+        #expect(service.pollInterval == 300.0)
     }
 
-    @Test("Returns 120 seconds with fewer than 3 consecutive failures")
+    @Test("Returns 300 seconds with fewer than 3 consecutive failures")
     @MainActor
     func pollIntervalBelowThreshold() async {
         let (service, _, mockNetwork) = makeService()
@@ -915,10 +915,10 @@ struct PollIntervalTests {
         await service.fetchUsage()
 
         #expect(service.consecutiveFailures == 2)
-        #expect(service.pollInterval == 120.0)
+        #expect(service.pollInterval == 300.0)
     }
 
-    @Test("Returns 300 seconds at exactly 3 consecutive failures")
+    @Test("Returns 600 seconds at exactly 3 consecutive failures")
     @MainActor
     func pollIntervalAtThreshold() async {
         let (service, _, mockNetwork) = makeService()
@@ -930,10 +930,10 @@ struct PollIntervalTests {
         }
 
         #expect(service.consecutiveFailures == 3)
-        #expect(service.pollInterval == 300.0)
+        #expect(service.pollInterval == 600.0)
     }
 
-    @Test("Returns 300 seconds above 3 consecutive failures")
+    @Test("Returns 600 seconds above 3 consecutive failures")
     @MainActor
     func pollIntervalAboveThreshold() async {
         let (service, _, mockNetwork) = makeService()
@@ -945,10 +945,10 @@ struct PollIntervalTests {
         }
 
         #expect(service.consecutiveFailures == 5)
-        #expect(service.pollInterval == 300.0)
+        #expect(service.pollInterval == 600.0)
     }
 
-    @Test("Resets to 120 seconds after a success following failures")
+    @Test("Resets to 300 seconds after a success following failures")
     @MainActor
     func pollIntervalResetsOnSuccess() async {
         let (service, _, mockNetwork) = makeService()
@@ -958,11 +958,11 @@ struct PollIntervalTests {
             mockNetwork.enqueue(data: Data(), statusCode: 403)
             await service.fetchUsage()
         }
-        #expect(service.pollInterval == 300.0)
+        #expect(service.pollInterval == 600.0)
 
         mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
         await service.fetchUsage()
         #expect(service.consecutiveFailures == 0)
-        #expect(service.pollInterval == 120.0)
+        #expect(service.pollInterval == 300.0)
     }
 }
