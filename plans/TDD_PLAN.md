@@ -590,13 +590,15 @@ Implement in order:
 
 ## Test Inventory Summary
 
+**[Updated]** Counts updated to reflect the actual implementation. The original plan estimated 86 tests; the final implementation has 132 tests due to additional edge-case coverage, extra model decoding tests, more formatting scenarios, and expanded service-layer tests added during development.
+
 | Test File | # Tests | What's Covered |
 |---|---|---|
-| `ModelsTests.swift` | 20 | UsageBucket (3), UsageResponse (2), OAuthCredentials (6), TokenRefreshResponse (1), Date.fromAPI (5), ExtraUsage (3) |
+| `ModelsTests.swift` | 38 | **[Updated]** 38 actual (was 20). Actual breakdown: UsageBucket (9), UsageResponse (7), HasAnyUsageData (6), OAuthCredentials (6), TokenRefreshResponse (2), Date.fromAPI (5), ExtraUsage (3). Original plan had 20 across fewer suites; additions include utilization clamping tests, null `resets_at` handling, partial/empty response variants, and the entire `HasAnyUsageDataTests` suite |
 | `KeychainParsingTests.swift` | 5 | Wrapped/bare format, malformed JSON, whitespace, snake_case in wrapper |
-| `FormattingTests.swift` | 22 | UsageLevel thresholds (6), reset time (5), reset time from Date (2), time ago (3), menu bar label (6) |
-| `UsageServiceTests.swift` | 39 | Form encoding (4), version parsing (3), fetch flow (22: 12a–12v), error descriptions (10) |
-| **Total** | **86** | All business logic + error messages + bug fixes |
+| `FormattingTests.swift` | 28 | **[Updated]** 28 actual (was 22). Actual breakdown: UsageLevel thresholds (6), formatResetTime (5), formatResetTime from Date (2), formatTimeAgo (3), formatMenuBarLabel (7), FormatCredits (5). Original plan had 22 across 5 groups; additions include a 7th menu bar label test (nil utilization with hasData) and the entire `FormatCreditsTests` suite (5 tests) |
+| `UsageServiceTests.swift` | 61 | **[Updated]** 61 actual (was 39). Actual breakdown: Form encoding (4), version parsing (3), fetch flow (31), error descriptions (14), decoding error diagnostics (4), poll interval (5). Original plan had 39 across 4 groups; additions include 9 fetch flow edge cases (expires_in flooring, proactive refresh failure tolerance, refresh token preservation, reload-during-loading guard, etc.), 4 additional error description tests (`processTimeout`, `requiresReauthentication`), and the `DescribeDecodingErrorTests` (4) and `PollIntervalTests` (5) suites |
+| **Total** | **132** | All business logic + error messages + bug fixes |
 
 ---
 

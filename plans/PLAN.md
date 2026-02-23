@@ -2,7 +2,7 @@
 
 ## Overview
 
-A native macOS menu bar app built with Swift/SwiftUI that displays Claude Pro/Max subscription usage at a glance. Clicking the menu bar icon opens a popover showing 5-hour rolling, 7-day weekly, and per-model (Sonnet/Opus) usage with color-coded progress bars. It auto-refreshes every 2 minutes.
+A native macOS menu bar app built with Swift/SwiftUI that displays Claude Pro/Max subscription usage at a glance. Clicking the menu bar icon opens a popover showing 5-hour rolling, 7-day weekly, and per-model (Sonnet/Opus) usage with color-coded progress bars. It auto-refreshes every 5 minutes. **[Updated]** Changed from 2 minutes to 5 minutes (300s) to reduce API load; 10-minute (600s) backoff after 3+ consecutive failures.
 
 **Design philosophy:** Clean-room implementation with zero external dependencies. We reference [claude-monitor](https://github.com/rjwalters/claude-monitor) for its battle-tested API/keychain knowledge (endpoint URLs, credential JSON structure, edge cases), but write all code from scratch with proper architecture, Swift 6 concurrency, and no SQLite bloat.
 
@@ -36,7 +36,7 @@ With `@Observable`, the label `Text(usageService.menuBarLabel)` should in theory
 ### Concurrency Model (Swift 6)
 
 - `UsageService` is `@MainActor @Observable class` — all published state lives on the main thread
-- Polling uses structured concurrency: `while !Task.isCancelled { await fetch(); try await Task.sleep(for: .seconds(120)) }`
+- Polling uses structured concurrency: `while !Task.isCancelled { await fetch(); try await Task.sleep(for: .seconds(300)) }` **[Updated]** Poll interval is 300s (5 min), not 120s. Extended to 600s (10 min) after 3+ consecutive failures.
 - No `Timer`, no `ObservableObject`, no `@Published` — pure `@Observable` + `async/await` (unless MenuBarExtra label fallback is needed — see above)
 - Model structs are `Sendable` automatically (value types only)
 - Package.swift uses `swift-tools-version:6.0` which sets Swift 6 language mode by default for compile-time data-race safety
@@ -61,7 +61,7 @@ The plan must handle macOS lifecycle events even without an `NSApplicationDelega
 | **Beta header** | `anthropic-beta: oauth-2025-04-20` |
 | **User-Agent** | Dynamically built: read Claude Code version from `claude --version` at launch, fall back to `claude-code/0.0.0` |
 | **OAuth client_id** | `9d1c250a-e61b-44d9-88ed-5944d1962f5e` |
-| **Poll interval** | Every 120 seconds |
+| **Poll interval** | Every 300 seconds (5 min) | **[Updated]** Changed from 120s to 300s normal, 600s backoff after 3+ failures.
 
 **Note on base URLs:** The usage endpoint uses `api.anthropic.com` while the token refresh uses `console.anthropic.com`. Do NOT create a single `baseURL` constant — build each request URL explicitly.
 
@@ -149,7 +149,7 @@ The keychain entry contains JSON with credentials nested under `claudeAiOauth`:
 - Some Claude Code versions may omit the `claudeAiOauth` wrapper — fall back to top-level keys
 - Service name is `"Claude Code-credentials"` (with the hyphen and space)
 
-**First-launch keychain prompt:** The very first time this app runs and calls `security find-generic-password`, macOS will show a system dialog: *"security wants to use your confidential information stored in 'Claude Code-credentials' in your keychain."* The user **must** click "Always Allow" (not just "Allow") or they'll see this prompt on every poll cycle (every 2 minutes). The app should show a first-launch message in the popover explaining what is about to happen and instructing the user to click "Always Allow."
+**First-launch keychain prompt:** The very first time this app runs and calls `security find-generic-password`, macOS will show a system dialog: *"security wants to use your confidential information stored in 'Claude Code-credentials' in your keychain."* The user **must** click "Always Allow" (not just "Allow") or they'll see this prompt on every poll cycle (every 5 minutes). **[Updated]** Poll interval is 5 minutes (300s), not 2 minutes. The app should show a first-launch message in the popover explaining what is about to happen and instructing the user to click "Always Allow."
 
 **Multiple keychain entries:** If the user has multiple Claude Code installations or accounts, `security find-generic-password` returns the first match with no ordering guarantee. For v1, single-account is the supported configuration. Document this limitation.
 
@@ -172,32 +172,46 @@ Our lifecycle:
 
 ## File Structure
 
+**[Updated]** Actual structure uses a library/executable/test split. All testable logic lives in `ClaudeUsageKit` (library target); the executable target (`ClaudeUsage`) is a thin SwiftUI shell. `Protocols.swift` and `Formatting.swift` were added as separate files in the library.
+
 ```
 tokens/
 ├── LICENSE
 ├── plans/
 │   └── PLAN.md                             ← this file
-├── Package.swift                       # SPM manifest, macOS 14+, Swift 6
+├── Package.swift                       # SPM manifest, macOS 14+, Swift 6, 3 targets
 ├── build.sh                            # Build + .app bundle + ad-hoc codesign
 ├── Resources/
 │   └── Info.plist                      # LSUIElement = YES (no dock icon)
-└── Sources/
-    └── ClaudeUsage/
-        ├── ClaudeUsageApp.swift         # @main App with MenuBarExtra
-        ├── ContentView.swift            # Popover UI: all usage metrics
-        ├── Models.swift                 # Codable structs for API response + credentials
-        ├── KeychainReader.swift         # Read-only credential access (security CLI only)
-        ├── UsageService.swift           # @MainActor @Observable: API client, polling, token refresh
-        └── UsageBarView.swift           # Reusable color-coded progress bar
+├── Sources/
+│   ├── ClaudeUsageKit/                 # Library target: all testable business logic
+│   │   ├── Formatting.swift            # Pure functions: color thresholds, time formatting, menu bar label
+│   │   ├── KeychainReader.swift        # Read-only credential access (security CLI only)
+│   │   ├── Models.swift                # Codable structs for API response + credentials
+│   │   ├── Protocols.swift             # DI interfaces (KeychainReading, NetworkSession) + error enums
+│   │   └── UsageService.swift          # @MainActor @Observable: API client, polling, token refresh
+│   └── ClaudeUsage/                    # Executable target: SwiftUI UI shell
+│       ├── ClaudeUsageApp.swift        # @main App with MenuBarExtra
+│       ├── ContentView.swift           # Popover UI: all usage metrics
+│       └── UsageBarView.swift          # Reusable color-coded progress bar
+└── Tests/
+    └── ClaudeUsageTests/               # Test target: depends on ClaudeUsageKit
+        ├── FormattingTests.swift
+        ├── KeychainParsingTests.swift
+        ├── Mocks.swift                 # MockKeychainReader, MockNetworkSession, HoldingNetworkSession
+        ├── ModelsTests.swift
+        └── UsageServiceTests.swift
 ```
 
-**6 Swift source files, 1 Package.swift, 1 build script, 1 Info.plist** — compact and focused. Zero external dependencies.
+**8 Swift source files + 5 test files, 1 Package.swift, 1 build script, 1 Info.plist** — compact and focused. Zero external dependencies.
 
 ---
 
 ## Implementation Steps
 
 ### Step 1: `Package.swift`
+
+**[Updated]** Actual Package.swift has 3 targets: `ClaudeUsageKit` (library), `ClaudeUsage` (executable depending on library), and `ClaudeUsageTests` (test target depending on library). This enables testing business logic without importing the executable.
 
 ```swift
 // swift-tools-version:6.0
@@ -207,18 +221,28 @@ let package = Package(
     name: "ClaudeUsage",
     platforms: [.macOS(.v14)],
     targets: [
+        .target(
+            name: "ClaudeUsageKit",
+            path: "Sources/ClaudeUsageKit"
+        ),
         .executableTarget(
             name: "ClaudeUsage",
+            dependencies: ["ClaudeUsageKit"],
             path: "Sources/ClaudeUsage",
             linkerSettings: [
                 .unsafeFlags([
                     "-Xlinker", "-sectcreate",
                     "-Xlinker", "__TEXT",
                     "-Xlinker", "__info_plist",
-                    "-Xlinker", "Resources/Info.plist"
+                    "-Xlinker", "Resources/Info.plist",
                 ])
             ]
-        )
+        ),
+        .testTarget(
+            name: "ClaudeUsageTests",
+            dependencies: ["ClaudeUsageKit"],
+            path: "Tests/ClaudeUsageTests"
+        ),
     ]
 )
 ```
@@ -242,10 +266,10 @@ Minimal plist with:
 
 Codable, Sendable structs mirroring the API responses:
 
-- `UsageResponse` — top-level with `fiveHour`, `sevenDay`, `sevenDayOpus?`, `sevenDaySonnet?`, `extraUsage?`
-- `UsageBucket` — contains `utilization: Double` and `resetsAt: Date` (parsed from ISO 8601 string at decode time)
+- `UsageResponse` — top-level with `fiveHour?`, `sevenDay?`, `sevenDayOpus?`, `sevenDaySonnet?`, `extraUsage?` **[Updated]** All five fields are optional (`UsageBucket?`) because new accounts can have entirely null buckets.
+- `UsageBucket` — contains `utilization: Double` and `resetsAt: Date?` (parsed from ISO 8601 string at decode time) **[Updated]** `resetsAt` is optional because the live API can return null for this field.
 - `ExtraUsage` — contains `isEnabled: Bool`, optional `monthlyLimit`, `usedCredits`, `utilization`
-- `TokenRefreshResponse` — `accessToken`, `tokenType`, `expiresIn`, `refreshToken`
+- `TokenRefreshResponse` — `accessToken`, `tokenType`, `expiresIn`, `refreshToken?` **[Updated]** `refreshToken` is `String?` per RFC 6749 section 6: the server MAY omit the refresh token in a refresh response, and the client should keep using the existing one.
 - `OAuthCredentials` — parsed from keychain JSON. Stores `expiresAt` as `Date` (converted from epoch milliseconds at parse time). Also includes `subscriptionType: String?` (e.g. "Pro", "Max") and `rateLimitTier: String?` for display purposes. Uses a **custom `init(from:)`** that tries both camelCase and snake_case key names (see below).
 
 **Decoding strategy notes:**
@@ -270,8 +294,11 @@ Codable, Sendable structs mirroring the API responses:
   ```
   where `FlexibleCodingKey` is a simple `CodingKey` struct that accepts any string, and `decodeFirstMatch` is a small helper that tries each key in order.
 
-**ISO 8601 date parsing:** The API returns timestamps with fractional seconds (e.g. `"2026-02-12T14:59:59.771647+00:00"`). Use `Date.ISO8601FormatStyle` (available macOS 12+), which is a value type and `Sendable` — unlike `ISO8601DateFormatter` which is an `NSObject` subclass and not `Sendable` in Swift 6:
+**ISO 8601 date parsing:** The API returns timestamps with fractional seconds (e.g. `"2026-02-12T14:59:59.771647+00:00"`). **[Updated]** Actual uses `ISO8601DateFormatter` (not `Date.ISO8601FormatStyle`) with `nonisolated(unsafe)` static lets. `FormatStyle` had timezone bugs on some macOS configurations, silently interpreting `+00:00` offsets using the system timezone instead of UTC. The `nonisolated(unsafe)` annotation satisfies Swift 6 concurrency checking for the static formatter instances.
+
+Original plan recommended `Date.ISO8601FormatStyle` (available macOS 12+), which is a value type and `Sendable` — unlike `ISO8601DateFormatter` which is an `NSObject` subclass and not `Sendable` in Swift 6:
 ```swift
+// Original plan (not used — see [Updated] above):
 extension Date {
     /// Parse ISO 8601 with fractional seconds; fall back to without
     static func fromAPI(_ string: String) -> Date? {
@@ -288,6 +315,8 @@ extension Date {
 Use this in a custom `init(from decoder:)` on `UsageBucket` to parse `resetsAt` into a `Date` at decode time.
 
 ### Step 4: `Sources/ClaudeUsage/KeychainReader.swift`
+
+**[Updated]** Actual implementation is `struct KeychainReader: KeychainReading` with instance methods, not an `enum` with static methods. This enables protocol-based DI for testing via `KeychainReading` protocol.
 
 A simple `enum KeychainReader` with `nonisolated` static methods (no shared mutable state):
 
@@ -325,6 +354,9 @@ enum KeychainReader {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
 
         process.waitUntilExit()
+        // **[Updated]** Actual uses `DispatchSemaphore` with 10-second timeout instead
+        // of `waitUntilExit()`. A `terminationHandler` signals the semaphore, and
+        // `semaphore.wait(timeout:)` throws `.processTimeout` if the process hangs.
 
         guard process.terminationStatus == 0 else {
             // Exit code 44 = item not found; 36 = user denied access
@@ -377,7 +409,7 @@ enum KeychainError: Error, LocalizedError {
     case notFound           // No Claude Code credentials in keychain
     case accessDenied       // User denied keychain access prompt
     case malformedJSON      // Credential data isn't valid JSON
-    case missingToken       // JSON present but no accessToken field
+    case processTimeout     // security CLI did not exit within 10 seconds — **[Updated]** Replaced `.missingToken` with `.processTimeout`. Missing fields are caught by the decoder and surface as `.malformedJSON`.
     case processError(Int32) // security CLI exited with non-zero
 
     var errorDescription: String? {
@@ -388,8 +420,8 @@ enum KeychainError: Error, LocalizedError {
             return "Keychain access denied. Re-launch and click \"Always Allow\" when prompted."
         case .malformedJSON:
             return "Credential data is corrupted. Try running `claude login` again."
-        case .missingToken:
-            return "Credentials are missing the access token. Try running `claude login` again."
+        case .processTimeout:
+            return "Keychain read timed out. The security process may be unresponsive."
         case .processError(let code):
             return "Keychain read failed (exit code \(code))."
         }
@@ -408,13 +440,16 @@ final class UsageService {
     var usage: UsageResponse?
     var error: UsageError?
     var lastUpdated: Date?
-    var isLoading = false
+    var isLoading = false  // **[Updated]** Actual is `public private(set) var` — publicly readable, privately settable.
 
     /// Menu bar label — "37%" or "--%" before first fetch, "!!" on error.
     /// Suffixes match the progress bar color thresholds:
     ///   0–80% = plain, 80–90% = "!" (orange zone), 90%+ = "!!" (red zone)
     /// Note: suffixes cause the label width to shift, nudging adjacent menu bar icons.
     /// This is an acceptable trade-off for at-a-glance urgency signaling.
+    // **[Updated]** Actual delegates to free function `formatMenuBarLabel()` in
+    // Formatting.swift for testability. The logic is the same but extracted as
+    // a pure function taking (utilization, hasError, hasData) parameters.
     var menuBarLabel: String {
         if let usage {
             let pct = Int(usage.fiveHour.utilization)
@@ -480,7 +515,7 @@ func startPolling() {
         await detectClaudeVersion()  // set userAgent
         while !Task.isCancelled {
             await fetchUsage()
-            try? await Task.sleep(for: .seconds(120))
+            try? await Task.sleep(for: .seconds(300))  // **[Updated]** 300s (5 min), not 120s. Dynamic via `pollInterval` property.
         }
     }
 }
@@ -512,7 +547,10 @@ private func detectClaudeVersion() async {
                 return Self.parseVersion(from: output)
             }
         }
-        // Fall back to login shell (loads user's full PATH)
+        // Fall back to shell PATH lookup
+        // **[Updated]** Actual uses `["-c", "claude --version"]` (no `-l` flag).
+        // Login shell (`-l`) was slow due to loading full shell profile; unnecessary
+        // since the direct path candidates above cover common installations.
         if let output = try? Self.runProcess("/bin/sh", arguments: ["-l", "-c", "claude --version"]) {
             return Self.parseVersion(from: output)
         }
@@ -540,6 +578,11 @@ init() {
     // Start polling immediately — don't wait for UI interaction
     startPolling()
 
+    // **[Updated]** Actual uses `MainActor.assumeIsolated` in the notification
+    // closure (since queue is `.main`) instead of `guard let self` + `Task { @MainActor }`.
+    // Also cancels any pending `wakeTask` before creating a new one, preventing
+    // duplicate refreshes from rapid sleep/wake cycles.
+    //
     // Store the observer token — without this, the observer is immediately deallocated
     wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
         forName: NSWorkspace.didWakeNotification,
@@ -570,7 +613,7 @@ init() {
 7. On refresh failure → re-read keychain (Claude Code may have refreshed) → retry once
 8. On persistent failure → set `error` with user-facing message
 9. Transient errors (429, 5xx, network) → exponential backoff (2s, 4s, 8s), max 3 retries per cycle
-10. **Extended outage backoff:** If 3+ consecutive poll cycles all fail, increase the poll interval from 120s to 300s (5 min) to reduce noise. Reset to 120s on first success
+10. **Extended outage backoff:** If 3+ consecutive poll cycles all fail, increase the poll interval from 300s to 600s (10 min) to reduce noise. Reset to 300s on first success. **[Updated]** Normal interval is 300s (not 120s); backoff is 600s (not 300s).
 
 **Concurrent refresh guard:**
 ```swift
@@ -594,6 +637,8 @@ request.setValue(userAgent, forHTTPHeaderField: "User-Agent")  // dynamic
 - Content-Type: `application/x-www-form-urlencoded` (NOT JSON)
 - Body: `grant_type=refresh_token&refresh_token=...&client_id=9d1c250a-...`
 - **Critical: percent-encode the refresh token** — tokens can contain `+`, `/`, `=` and other characters that break form-urlencoded bodies. Do NOT rely on `URLComponents`/`URLQueryItem` — its handling of `+` is inconsistent across OS versions, and a literal `+` in a refresh token could be silently decoded as a space on the server, corrupting the single-use token. Instead, manually percent-encode each value with a strict allowed character set:
+  **[Updated]** Actual is a module-level `private let` (not `private static let` on UsageService) to avoid actor hop — `@MainActor` isolation on the class would otherwise require awaiting access from `nonisolated` contexts.
+
   ```swift
   /// Allowed chars for form-urlencoded values: unreserved chars only (RFC 3986).
   /// Explicitly excludes +, &, = which have special meaning in form encoding.
@@ -732,7 +777,7 @@ A shell script that:
    - **macOS 14 (Sonoma):** If Gatekeeper blocks: `xattr -cr ClaudeUsage.app`
    - **macOS 15 (Sequoia) and later:** `xattr -cr` is no longer sufficient. Users must go to **System Settings → Privacy & Security** and explicitly click "Open Anyway" for the app
    - **Keychain access:** On first launch, click "Always Allow" when macOS asks about keychain access
-   - Auto-start on login: System Settings → General → Login Items
+   - Auto-start on login: use the in-app "Launch at Login" toggle **[Updated]** Actual has an in-app toggle via `SMAppService.mainApp.register()`/`.unregister()`, rather than requiring manual System Settings navigation.
 
 ---
 
@@ -803,7 +848,7 @@ These specific implementation details were validated against claude-monitor's wo
 
 1. **`MenuBarExtra` label may not update** — See "Known Risk" section above. Must prototype first
 2. **Single-account only** — Multiple Claude Code keychain entries may return the wrong account's credentials
-3. **Keychain permission prompt on first launch** — User must click "Always Allow" or gets prompted every 2 minutes
+3. **Keychain permission prompt on first launch** — User must click "Always Allow" or gets prompted every 5 minutes **[Updated]** Poll interval is 5 minutes (300s), not 2 minutes.
 4. **Clock skew** — Token expiry computed from `Date()`. If the user's system clock is significantly wrong, proactive refresh may fire too early or too late
 5. **`unsafeFlags` in `Package.swift`** — Package cannot be consumed as a dependency (fine for standalone app)
 6. **Sequoia Gatekeeper** — On macOS 15+, `xattr -cr` is no longer sufficient; users must manually allow in System Settings
@@ -833,4 +878,4 @@ On first launch:
 2. **Keychain dialog:** Click **"Always Allow"** (not just "Allow") when macOS asks about keychain access
 3. The menu bar icon appears showing your current 5-hour usage percentage
 
-To auto-start on login: System Settings → General → Login Items → add `ClaudeUsage.app`.
+To auto-start on login: use the "Launch at Login" toggle in the app's popover. **[Updated]** Actual has an in-app toggle via `SMAppService`, no need to navigate System Settings manually.
