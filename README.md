@@ -8,6 +8,10 @@ Claude Usage sits in your menu bar and polls the Claude API every five minutes, 
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![Tests](https://img.shields.io/badge/tests-132-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
+<img src="assets/menubar.png" alt="Claude Usage showing 21% in the macOS menu bar" width="300">
+
+Most of the time, Claude Usage is just a quiet percentage in your menu bar. Click it to see the full breakdown:
+
 <img src="assets/screenshot.png" alt="Claude Usage popover showing usage bars and extra usage credits" width="300">
 
 ## How it works
