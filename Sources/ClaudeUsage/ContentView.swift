@@ -3,6 +3,42 @@ import ServiceManagement
 import ClaudeUsageKit
 
 /// The main popover content shown when the menu bar icon is clicked.
+// MARK: - Preview
+
+#if DEBUG
+private struct NoOpKeychain: KeychainReading {
+    func readCredentials() async throws -> OAuthCredentials {
+        throw KeychainError.notFound
+    }
+}
+
+private struct NoOpNetwork: NetworkSession {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        throw URLError(.notConnectedToInternet)
+    }
+}
+
+@MainActor private func makePreviewService() -> UsageService {
+    let service = UsageService(keychainReader: NoOpKeychain(), networkSession: NoOpNetwork())
+    service.usage = UsageResponse(
+        fiveHour: UsageBucket(utilization: 73, resetsAt: Date().addingTimeInterval(2 * 3600 + 14 * 60)),
+        sevenDay: UsageBucket(utilization: 45, resetsAt: Date().addingTimeInterval(3 * 86400 + 7 * 3600)),
+        sevenDayOpus: UsageBucket(utilization: 91, resetsAt: Date().addingTimeInterval(1 * 86400 + 18 * 3600)),
+        sevenDaySonnet: UsageBucket(utilization: 38, resetsAt: Date().addingTimeInterval(3 * 86400 + 7 * 3600)),
+        extraUsage: ExtraUsage(isEnabled: true, monthlyLimit: 10000, usedCredits: 347)
+    )
+    service.subscriptionType = "max"
+    service.lastUpdated = Date().addingTimeInterval(-137)
+    return service
+}
+
+#Preview {
+    ContentView(service: makePreviewService())
+}
+#endif
+
+// MARK: - Content View
+
 struct ContentView: View {
     let service: UsageService
 

@@ -8,13 +8,19 @@ let package = Package(
         // Library target: all testable business logic
         .target(
             name: "ClaudeUsageKit",
-            path: "Sources/ClaudeUsageKit"
+            path: "Sources/ClaudeUsageKit",
+            swiftSettings: [
+                .unsafeFlags(["-enable-library-evolution"], .when(configuration: .debug))
+            ]
         ),
         // Executable target: SwiftUI views + @main app entry point
         .executableTarget(
             name: "ClaudeUsage",
             dependencies: ["ClaudeUsageKit"],
             path: "Sources/ClaudeUsage",
+            swiftSettings: [
+                .unsafeFlags(["-enable-library-evolution"], .when(configuration: .debug))
+            ],
             linkerSettings: [
                 .unsafeFlags([
                     "-Xlinker", "-sectcreate",
