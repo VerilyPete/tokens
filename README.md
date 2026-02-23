@@ -10,7 +10,7 @@ If you use Claude Code heavily, you've probably hit rate limits without warning.
 
 ## How it works
 
-The app reads your Claude Code OAuth credentials from the macOS keychain (read-only, it never writes to the keychain) and uses them to hit the same usage API that Claude Code itself uses. It handles token refresh automatically, retries with exponential backoff on transient failures, and detects sleep/wake so it doesn't spam errors when your laptop wakes up without a network connection.
+The app reads your Claude Code OAuth credentials from the macOS keychain (read-only, it never writes to the keychain) and uses them to hit the same usage API that Claude Code itself uses. Your subscription tier (Pro, Max, Max 20x, etc.) is picked up from the keychain automatically and shown as a badge in the popover. It handles token refresh automatically, retries with exponential backoff on transient failures, and detects sleep/wake so it doesn't spam errors when your laptop wakes up without a network connection.
 
 The menu bar label gives you a quick read:
 
