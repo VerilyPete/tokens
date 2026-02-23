@@ -60,9 +60,11 @@ echo "Creating ${APP_BUNDLE}..."
 rm -rf "${APP_BUNDLE}"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 
-# Step 4: Copy binary and Info.plist
+# Step 4: Copy binary, Info.plist, and resources
 cp "${BUILD_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/"
 cp "Resources/Info.plist" "${APP_BUNDLE}/Contents/"
+mkdir -p "${APP_BUNDLE}/Contents/Resources"
+cp "Resources/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/"
 
 # Step 5: Codesign
 echo "Codesigning with identity: ${SIGN_IDENTITY}..."
