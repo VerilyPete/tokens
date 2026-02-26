@@ -30,6 +30,13 @@ public final class UsageService {
     public var lastUpdated: Date?
     public private(set) var isLoading = false
     public var subscriptionType: String?
+    public var rateLimitTier: String?
+
+    /// Display-friendly plan badge derived from subscriptionType and rateLimitTier.
+    /// E.g. "Pro", "Max", "Max 20x".
+    public var planBadge: String? {
+        formatPlanBadge(subscriptionType: subscriptionType, rateLimitTier: rateLimitTier)
+    }
 
     /// Menu bar label — computed from current state.
     /// Uses `hasAnyUsageData` so we don't imply data is present when all buckets are null.
@@ -178,7 +185,8 @@ public final class UsageService {
                 refreshToken = creds.refreshToken
                 tokenExpiresAt = creds.expiresAt
                 subscriptionType = creds.subscriptionType
-                logger.info("Keychain read succeeded, subscription: \(creds.subscriptionType ?? "unknown")")
+                rateLimitTier = creds.rateLimitTier
+                logger.info("Keychain read succeeded, subscription: \(creds.subscriptionType ?? "unknown"), tier: \(creds.rateLimitTier ?? "unknown")")
             } catch let err as KeychainError {
                 error = .keychain(err)
                 consecutiveFailures += 1
@@ -261,6 +269,7 @@ public final class UsageService {
                                 refreshToken = creds.refreshToken
                                 tokenExpiresAt = creds.expiresAt
                                 subscriptionType = creds.subscriptionType
+                                rateLimitTier = creds.rateLimitTier
                                 await performFetch(retryOn401: false)
                             } catch let keychainErr as KeychainError {
                                 self.error = .keychain(keychainErr)

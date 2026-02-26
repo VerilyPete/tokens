@@ -90,6 +90,29 @@ public func formatMenuBarLabel(
     return "--%"
 }
 
+// MARK: - Plan Badge
+
+/// Derive a display-friendly plan badge from keychain credential fields.
+/// Uses `rateLimitTier` to distinguish Max variants (e.g. "default_claude_max_20x" → "Max 20x").
+/// Falls back to capitalizing `subscriptionType` when the tier doesn't contain a multiplier.
+/// Returns nil when subscriptionType is nil or empty.
+public func formatPlanBadge(subscriptionType: String?, rateLimitTier: String?) -> String? {
+    guard let sub = subscriptionType, !sub.isEmpty else { return nil }
+
+    // Extract multiplier from rateLimitTier (e.g. "default_claude_max_20x" → "20")
+    if let tier = rateLimitTier,
+       let match = tier.firstMatch(of: /(\d+)x/) {
+        let multiplier = String(match.1)
+        // 5x is the base Max tier — just show "Max". Higher tiers get the suffix.
+        if multiplier != "5" {
+            return "Max \(multiplier)x"
+        }
+    }
+
+    // Capitalize first letter (e.g. "max" → "Max", "pro" → "Pro")
+    return sub.prefix(1).uppercased() + sub.dropFirst()
+}
+
 // MARK: - Credits Formatting
 
 /// Convert a cents value (Double) to a display dollar string.

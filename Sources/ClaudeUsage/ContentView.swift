@@ -28,6 +28,7 @@ private struct NoOpNetwork: NetworkSession {
         extraUsage: ExtraUsage(isEnabled: true, monthlyLimit: 10000, usedCredits: 347)
     )
     service.subscriptionType = "max"
+    service.rateLimitTier = "default_claude_max_20x"
     service.lastUpdated = Date().addingTimeInterval(-137)
     return service
 }
@@ -80,7 +81,7 @@ struct ContentView: View {
                 .font(.title3)
                 .fontWeight(.semibold)
 
-            if let tier = service.subscriptionType {
+            if let tier = service.planBadge {
                 Text(tier)
                     .font(.caption)
                     .padding(.horizontal, 6)

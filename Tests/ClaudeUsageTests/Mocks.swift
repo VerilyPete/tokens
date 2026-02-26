@@ -281,13 +281,15 @@ enum TestData {
         accessToken: String = "test-access-token",
         refreshToken: String = "test-refresh-token",
         expiresAt: Date = Date(timeIntervalSinceNow: 3600),
-        subscriptionType: String? = "Pro"
+        subscriptionType: String? = "Pro",
+        rateLimitTier: String? = nil
     ) -> OAuthCredentials {
         OAuthCredentials(
             accessToken: accessToken,
             refreshToken: refreshToken,
             expiresAt: expiresAt,
-            subscriptionType: subscriptionType
+            subscriptionType: subscriptionType,
+            rateLimitTier: rateLimitTier
         )
     }
 }

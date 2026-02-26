@@ -259,6 +259,70 @@ struct UsageServiceFetchTests {
         #expect(service.subscriptionType == "Max")
     }
 
+    @Test("Sets rateLimitTier from keychain credentials")
+    @MainActor
+    func rateLimitTierFromKeychain() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials(
+                subscriptionType: "max",
+                rateLimitTier: "default_claude_max_20x"
+            )
+        )
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.rateLimitTier == "default_claude_max_20x")
+    }
+
+    @Test("planBadge returns 'Max 20x' for max20x credentials")
+    @MainActor
+    func planBadgeMax20x() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials(
+                subscriptionType: "max",
+                rateLimitTier: "default_claude_max_20x"
+            )
+        )
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.planBadge == "Max 20x")
+    }
+
+    @Test("planBadge returns 'Max' for base max credentials")
+    @MainActor
+    func planBadgeMax5x() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials(
+                subscriptionType: "max",
+                rateLimitTier: "default_claude_max_5x"
+            )
+        )
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.planBadge == "Max")
+    }
+
+    @Test("planBadge returns 'Pro' for pro credentials")
+    @MainActor
+    func planBadgePro() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials(
+                subscriptionType: "Pro",
+                rateLimitTier: "tier_1"
+            )
+        )
+        mockNetwork.enqueue(data: TestData.fullUsageJSON, statusCode: 200)
+
+        await service.fetchUsage()
+
+        #expect(service.planBadge == "Pro")
+    }
+
     @Test("Sets decodingFailed error for malformed response")
     @MainActor
     func fetchDecodingError() async {
@@ -700,18 +764,22 @@ struct UsageServiceFetchTests {
         await firstFetch.value
     }
 
-    @Test("Updates subscriptionType when keychain is re-read after 401")
+    @Test("Updates subscriptionType and rateLimitTier when keychain is re-read after 401")
     @MainActor
     func subscriptionTypeUpdatedOn401KeychainReread() async {
-        // Use explicit queue so first read returns Pro, second returns Max
+        // Use explicit queue so first read returns Pro, second returns Max 20x
         let (service, mockKeychain, mockNetwork) = makeService()
 
         // First keychain read (token init): Pro subscription
-        mockKeychain.enqueue(.success(TestData.mockCredentials(subscriptionType: "Pro")))
-        // Second keychain read (401 fallback): Max subscription
+        mockKeychain.enqueue(.success(TestData.mockCredentials(
+            subscriptionType: "Pro",
+            rateLimitTier: "tier_1"
+        )))
+        // Second keychain read (401 fallback): Max 20x subscription
         mockKeychain.enqueue(.success(TestData.mockCredentials(
             accessToken: "fresh-token",
-            subscriptionType: "Max"
+            subscriptionType: "max",
+            rateLimitTier: "default_claude_max_20x"
         )))
 
         // First fetch: 401
@@ -723,7 +791,9 @@ struct UsageServiceFetchTests {
 
         await service.fetchUsage()
 
-        #expect(service.subscriptionType == "Max")
+        #expect(service.subscriptionType == "max")
+        #expect(service.rateLimitTier == "default_claude_max_20x")
+        #expect(service.planBadge == "Max 20x")
         #expect(service.usage != nil)
     }
 }
