@@ -99,8 +99,13 @@ public func formatMenuBarLabel(
 public func formatPlanBadge(subscriptionType: String?, rateLimitTier: String?) -> String? {
     guard let sub = subscriptionType, !sub.isEmpty else { return nil }
 
+    let isMax = sub.lowercased() == "max"
+
     // Extract multiplier from rateLimitTier (e.g. "default_claude_max_20x" → "20")
-    if let tier = rateLimitTier,
+    // Only applies to Max plans, and the tier must contain "_max_" to avoid false positives.
+    if isMax,
+       let tier = rateLimitTier?.lowercased(),
+       tier.contains("_max_"),
        let match = tier.firstMatch(of: /(\d+)x/) {
         let multiplier = String(match.1)
         // 5x is the base Max tier — just show "Max". Higher tiers get the suffix.

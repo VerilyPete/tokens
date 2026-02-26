@@ -245,6 +245,22 @@ struct PlanBadgeTests {
         let result = formatPlanBadge(subscriptionType: "max", rateLimitTier: "default_claude_max_100x")
         #expect(result == "Max 100x")
     }
+
+    @Test("Does not return Max badge for non-Max subscription with multiplier-like tier")
+    func nonMaxWithMultiplierTier() {
+        // A non-Max subscription should never produce a "Max Nx" badge,
+        // even if the tier string happens to contain a multiplier pattern.
+        #expect(formatPlanBadge(subscriptionType: "pro", rateLimitTier: "default_claude_max_20x") == "Pro")
+        #expect(formatPlanBadge(subscriptionType: "Pro", rateLimitTier: "some_tier_20x") == "Pro")
+        #expect(formatPlanBadge(subscriptionType: "enterprise", rateLimitTier: "default_claude_max_20x") == "Enterprise")
+    }
+
+    @Test("Requires _max_ in tier to apply multiplier (guards against false positives)")
+    func tierWithoutMaxSegment() {
+        // A Max subscription with a tier that has a multiplier but no "_max_" segment
+        // should fall through to plain "Max" capitalization.
+        #expect(formatPlanBadge(subscriptionType: "max", rateLimitTier: "some_20x_tier") == "Max")
+    }
 }
 
 // MARK: - formatCredits
