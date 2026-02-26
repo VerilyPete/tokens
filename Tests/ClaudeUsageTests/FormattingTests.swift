@@ -195,6 +195,74 @@ struct MenuBarLabelTests {
     }
 }
 
+// MARK: - formatPlanBadge
+
+@Suite("formatPlanBadge")
+struct PlanBadgeTests {
+
+    @Test("Returns 'Max 20x' for default_claude_max_20x tier")
+    func max20xTier() {
+        let result = formatPlanBadge(subscriptionType: "max", rateLimitTier: "default_claude_max_20x")
+        #expect(result == "Max 20x")
+    }
+
+    @Test("Returns 'Max' for default_claude_max_5x tier (base Max)")
+    func max5xTier() {
+        let result = formatPlanBadge(subscriptionType: "max", rateLimitTier: "default_claude_max_5x")
+        #expect(result == "Max")
+    }
+
+    @Test("Capitalizes raw subscriptionType when no multiplier in tier")
+    func capitalizesSubscriptionType() {
+        #expect(formatPlanBadge(subscriptionType: "max", rateLimitTier: "tier_2") == "Max")
+        #expect(formatPlanBadge(subscriptionType: "pro", rateLimitTier: "tier_1") == "Pro")
+    }
+
+    @Test("Capitalizes subscriptionType when rateLimitTier is nil")
+    func nilTier() {
+        #expect(formatPlanBadge(subscriptionType: "max", rateLimitTier: nil) == "Max")
+        #expect(formatPlanBadge(subscriptionType: "pro", rateLimitTier: nil) == "Pro")
+    }
+
+    @Test("Preserves already-capitalized subscriptionType")
+    func alreadyCapitalized() {
+        #expect(formatPlanBadge(subscriptionType: "Pro", rateLimitTier: nil) == "Pro")
+        #expect(formatPlanBadge(subscriptionType: "Max", rateLimitTier: nil) == "Max")
+    }
+
+    @Test("Returns nil when subscriptionType is nil")
+    func nilSubscription() {
+        #expect(formatPlanBadge(subscriptionType: nil, rateLimitTier: "default_claude_max_20x") == nil)
+    }
+
+    @Test("Returns nil when subscriptionType is empty")
+    func emptySubscription() {
+        #expect(formatPlanBadge(subscriptionType: "", rateLimitTier: "default_claude_max_20x") == nil)
+    }
+
+    @Test("Handles hypothetical future tiers like 100x")
+    func futureTier() {
+        let result = formatPlanBadge(subscriptionType: "max", rateLimitTier: "default_claude_max_100x")
+        #expect(result == "Max 100x")
+    }
+
+    @Test("Does not return Max badge for non-Max subscription with multiplier-like tier")
+    func nonMaxWithMultiplierTier() {
+        // A non-Max subscription should never produce a "Max Nx" badge,
+        // even if the tier string happens to contain a multiplier pattern.
+        #expect(formatPlanBadge(subscriptionType: "pro", rateLimitTier: "default_claude_max_20x") == "Pro")
+        #expect(formatPlanBadge(subscriptionType: "Pro", rateLimitTier: "some_tier_20x") == "Pro")
+        #expect(formatPlanBadge(subscriptionType: "enterprise", rateLimitTier: "default_claude_max_20x") == "Enterprise")
+    }
+
+    @Test("Requires _max_ in tier to apply multiplier (guards against false positives)")
+    func tierWithoutMaxSegment() {
+        // A Max subscription with a tier that has a multiplier but no "_max_" segment
+        // should fall through to plain "Max" capitalization.
+        #expect(formatPlanBadge(subscriptionType: "max", rateLimitTier: "some_20x_tier") == "Max")
+    }
+}
+
 // MARK: - formatCredits
 
 @Suite("formatCredits")
