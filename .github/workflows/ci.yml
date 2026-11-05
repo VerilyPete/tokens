@@ -161,8 +161,21 @@ jobs:
               exit 1
           fi
 
-          # Staple the ticket to the .app (NOT the zip)
-          xcrun stapler staple ClaudeUsage.app
+          # Staple the ticket to the .app (NOT the zip).
+          # Retry: the runner's fetch of the ticket from Apple's CloudKit
+          # intermittently drops (NSURLErrorDomain -1005, stapler error 68).
+          for attempt in 1 2 3 4 5; do
+              if xcrun stapler staple ClaudeUsage.app; then
+                  break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                  echo "::error::Stapling failed after $attempt attempts"
+                  exit 1
+              fi
+              DELAY=$((attempt * 15))
+              echo "::warning::Staple attempt $attempt failed; retrying in ${DELAY}s"
+              sleep "$DELAY"
+          done
 
       - name: Verify notarization
         run: |
@@ -324,7 +337,21 @@ jobs:
               exit 1
           fi
 
-          xcrun stapler staple ClaudeUsage.app
+          # Staple the ticket to the .app (NOT the zip).
+          # Retry: the runner's fetch of the ticket from Apple's CloudKit
+          # intermittently drops (NSURLErrorDomain -1005, stapler error 68).
+          for attempt in 1 2 3 4 5; do
+              if xcrun stapler staple ClaudeUsage.app; then
+                  break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                  echo "::error::Stapling failed after $attempt attempts"
+                  exit 1
+              fi
+              DELAY=$((attempt * 15))
+              echo "::warning::Staple attempt $attempt failed; retrying in ${DELAY}s"
+              sleep "$DELAY"
+          done
 
       - name: Verify notarization
         run: |
