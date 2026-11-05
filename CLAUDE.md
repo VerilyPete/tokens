@@ -10,7 +10,7 @@ Claude Usage is a native macOS menu bar app that displays Claude Pro, Max, or Ul
 
 ```bash
 swift build                              # Debug build
-swift test                               # All 212 tests
+swift test                               # All 215 tests
 swift test --filter FormattingTests      # Run one test suite
 swift test --filter testFetchSuccess     # Run single test
 ./build.sh                               # Release build + .app bundle (ad-hoc codesigned)

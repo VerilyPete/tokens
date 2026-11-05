@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Observation
 @testable import ClaudeUsageKit
 
 private struct LoginItemFailure: LocalizedError {
@@ -10,6 +11,8 @@ final class MockLoginItemManager: LoginItemManaging {
     var isEnabled: Bool
     var registerError: Error?
     var unregisterError: Error?
+    var statusAfterFailure: Bool?
+    var registerLeavesDisabled = false
     private(set) var calls: [String] = []
 
     init(isEnabled: Bool = false) {
@@ -18,13 +21,19 @@ final class MockLoginItemManager: LoginItemManaging {
 
     func register() throws {
         calls.append("register")
-        if let registerError { throw registerError }
-        isEnabled = true
+        if let registerError {
+            statusAfterFailure.map { isEnabled = $0 }
+            throw registerError
+        }
+        isEnabled = !registerLeavesDisabled
     }
 
     func unregister() throws {
         calls.append("unregister")
-        if let unregisterError { throw unregisterError }
+        if let unregisterError {
+            statusAfterFailure.map { isEnabled = $0 }
+            throw unregisterError
+        }
         isEnabled = false
     }
 }
@@ -74,6 +83,46 @@ struct LoginItemControllerTests {
         #expect(controller.lastError == "Operation not permitted")
     }
 
+    @Test("A failed change re-reads the system status rather than assuming it is unchanged")
+    func failureRereadsStatus() {
+        let manager = MockLoginItemManager(isEnabled: true)
+        manager.unregisterError = LoginItemFailure()
+        manager.statusAfterFailure = false
+        let controller = LoginItemController(manager: manager)
+
+        controller.setEnabled(false)
+
+        #expect(controller.isEnabled == false)
+        #expect(controller.lastError == "Operation not permitted")
+    }
+
+    @Test("Registration that still needs user approval shows as unchecked")
+    func registerPendingApproval() {
+        let manager = MockLoginItemManager(isEnabled: false)
+        manager.registerLeavesDisabled = true
+        let controller = LoginItemController(manager: manager)
+
+        controller.setEnabled(true)
+
+        #expect(controller.isEnabled == false)
+        #expect(controller.lastError == nil)
+    }
+
+    @Test("Changing the setting notifies observers, so the checkbox redraws")
+    func changeNotifiesObservers() {
+        let controller = LoginItemController(manager: MockLoginItemManager(isEnabled: true))
+        let changed = ChangeFlag()
+
+        withObservationTracking {
+            _ = controller.isEnabled
+        } onChange: {
+            changed.fired = true
+        }
+        controller.setEnabled(false)
+
+        #expect(changed.fired)
+    }
+
     @Test("Refresh picks up changes made outside the app (e.g. System Settings)")
     func refreshPicksUpExternalChange() {
         let manager = MockLoginItemManager(isEnabled: true)
@@ -110,4 +159,8 @@ struct LoginItemControllerTests {
         #expect(controller.lastError == nil)
         #expect(controller.isEnabled)
     }
+}
+
+private final class ChangeFlag: @unchecked Sendable {
+    var fired = false
 }
