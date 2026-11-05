@@ -2,7 +2,7 @@
 
 ## Overview
 
-A native macOS menu bar app built with Swift/SwiftUI that displays Claude Pro/Max subscription usage at a glance. Clicking the menu bar icon opens a popover showing 5-hour rolling, 7-day weekly, and per-model (Sonnet/Opus) usage with color-coded progress bars. It auto-refreshes every 5 minutes. **[Updated]** Changed from 2 minutes to 5 minutes (300s) to reduce API load; 10-minute (600s) backoff after 3+ consecutive failures.
+A native macOS menu bar app built with Swift/SwiftUI that displays Claude Pro/Max subscription usage at a glance. **[Updated]** Plans were renamed (Max 5x → Max, Max 20x → Ultra); see `plans/ULTRA_LIMITS_PLAN.md`. Clicking the menu bar icon opens a popover showing 5-hour rolling, 7-day weekly, and per-model (Sonnet/Opus) usage with color-coded progress bars. It auto-refreshes every 5 minutes. **[Updated]** Changed from 2 minutes to 5 minutes (300s) to reduce API load; 10-minute (600s) backoff after 3+ consecutive failures.
 
 **Design philosophy:** Clean-room implementation with zero external dependencies. We reference [claude-monitor](https://github.com/rjwalters/claude-monitor) for its battle-tested API/keychain knowledge (endpoint URLs, credential JSON structure, edge cases), but write all code from scratch with proper architecture, Swift 6 concurrency, and no SQLite bloat.
 
@@ -16,7 +16,7 @@ A native macOS menu bar app built with Swift/SwiftUI that displays Claude Pro/Ma
 - The build script compiles via `swift build`, packages into a `.app` bundle, and ad-hoc signs it
 - `Info.plist` is embedded into the binary at link time via `-sectcreate` linker flag, so `Bundle.main.infoDictionary` works even outside a `.app` bundle during development
 - `Info.plist` sets `LSUIElement = YES` so the app has no Dock icon — menu bar only
-- The menu bar shows the current 5-hour utilization as a **monochrome** text percentage (e.g. `37%`) that updates live. Note: `MenuBarExtra` labels are rendered in the system's menu bar style — **colored text is not supported** by the system; it always renders monochrome
+- The menu bar shows the current 5-hour utilization as a **monochrome** text percentage (e.g. `37%`) that updates live. **[Updated]** Now shows the highest active limit by default (or a user-pinned limit), since verified Ultra accounts have no 5-hour limit; see `plans/ULTRA_LIMITS_PLAN.md`. Note: `MenuBarExtra` labels are rendered in the system's menu bar style — **colored text is not supported** by the system; it always renders monochrome
 - Clicking it opens a `.window`-style popover with full usage details
 - **macOS 14 Sonoma minimum** — required for `@Observable` macro
 
@@ -709,9 +709,9 @@ Every `UsageBarView` must have `.accessibilityLabel` and `.accessibilityValue` s
 
 The main popover view containing:
 - A header row with "Claude Usage" and a refresh button (arrow.clockwise SF Symbol)
-- **Subscription type badge** — show "Pro" or "Max" from the keychain credentials' `subscriptionType` field (e.g. a subtle `Text("Pro").font(.caption).padding(.horizontal, 6).background(.secondary.opacity(0.2)).clipShape(Capsule())`)
+- **Subscription type badge** — show "Pro" or "Max" from the keychain credentials' `subscriptionType` field **[Updated]** Max 20x tier is now labelled "Ultra"; see `plans/ULTRA_LIMITS_PLAN.md`. (e.g. a subtle `Text("Pro").font(.caption).padding(.horizontal, 6).background(.secondary.opacity(0.2)).clipShape(Capsule())`)
 - **First-launch message** (shown before first keychain read): explains the upcoming keychain permission dialog and instructs user to click "Always Allow"
-- `UsageBarView` for **5-Hour Session** usage
+- `UsageBarView` for **5-Hour Session** usage **[Updated]** Popover now renders generic usage rows built from the `limits` array (see `plans/ULTRA_LIMITS_PLAN.md`).
 - `UsageBarView` for **7-Day Weekly** usage
 - Conditional `UsageBarView` for **Sonnet (7-Day)** if present
 - Conditional `UsageBarView` for **Opus (7-Day)** if present
@@ -746,7 +746,7 @@ struct ClaudeUsageApp: App {
 ```
 
 - **`startPolling()` is called from `UsageService.init()`** — NOT from `.onAppear`. With `.window`-style `MenuBarExtra`, `.onAppear` fires when the **popover is first opened** (lazily), not at app launch. If the user never clicks the menu bar icon, polling would never start. By starting in `init()`, polling begins immediately at app launch regardless of user interaction.
-- Menu bar shows live 5-hour percentage as monochrome text (e.g. "37%")
+- Menu bar shows live 5-hour percentage as monochrome text (e.g. "37%") **[Updated]** Now the highest active (or pinned) limit; see `plans/ULTRA_LIMITS_PLAN.md`.
 - **No colored text** — the system renders `MenuBarExtra` labels in system menu bar style (monochrome). Use a threshold-based suffix instead: "37%" / "92%!" / "98%!!" to convey urgency
 - `.window` style gives a proper popover (not just a menu)
 - `usageService` is created once and shared
@@ -876,6 +876,6 @@ open ClaudeUsage.app          # Launches in menu bar
 On first launch:
 1. **macOS 15 (Sequoia):** Go to System Settings → Privacy & Security → click "Open Anyway"
 2. **Keychain dialog:** Click **"Always Allow"** (not just "Allow") when macOS asks about keychain access
-3. The menu bar icon appears showing your current 5-hour usage percentage
+3. The menu bar icon appears showing your current 5-hour usage percentage **[Updated]** Now the highest active limit; see `plans/ULTRA_LIMITS_PLAN.md`.
 
 To auto-start on login: use the "Launch at Login" toggle in the app's popover. **[Updated]** Actual has an in-app toggle via `SMAppService`, no need to navigate System Settings manually.

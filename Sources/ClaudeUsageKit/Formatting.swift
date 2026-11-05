@@ -93,7 +93,8 @@ public func formatMenuBarLabel(
 // MARK: - Plan Badge
 
 /// Derive a display-friendly plan badge from keychain credential fields.
-/// Uses `rateLimitTier` to distinguish Max variants (e.g. "default_claude_max_20x" → "Max 20x").
+/// Uses `rateLimitTier` to distinguish Max variants (e.g. "default_claude_max_20x" → "Ultra").
+/// The 20x Max tier is branded "Ultra"; 5x shows plain "Max"; other multipliers show "Max <n>x".
 /// Falls back to capitalizing `subscriptionType` when the tier doesn't contain a multiplier.
 /// Returns nil when subscriptionType is nil or empty.
 public func formatPlanBadge(subscriptionType: String?, rateLimitTier: String?) -> String? {
@@ -108,7 +109,10 @@ public func formatPlanBadge(subscriptionType: String?, rateLimitTier: String?) -
        tier.contains("_max_"),
        let match = tier.firstMatch(of: /(\d+)x/) {
         let multiplier = String(match.1)
-        // 5x is the base Max tier — just show "Max". Higher tiers get the suffix.
+        // 5x is the base Max tier — just show "Max". 20x is branded "Ultra".
+        if multiplier == "20" {
+            return "Ultra"
+        }
         if multiplier != "5" {
             return "Max \(multiplier)x"
         }

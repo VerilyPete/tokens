@@ -190,7 +190,7 @@ struct UsageServiceFetchTests {
         #expect(service.consecutiveFailures == 2)
     }
 
-    @Test("menuBarLabel shows '--%' when usage is set but fiveHour bucket is absent")
+    @Test("menuBarLabel shows the weekly percent when the fiveHour bucket is absent (verified Ultra)")
     @MainActor
     func menuBarLabelNoFiveHour() async {
         let (service, _, mockNetwork) = makeService(
@@ -211,7 +211,20 @@ struct UsageServiceFetchTests {
 
         #expect(service.usage != nil)
         #expect(service.usage?.fiveHour == nil)
-        #expect(service.menuBarLabel == "--%")
+        #expect(service.menuBarLabel == "26%")
+    }
+
+    @Test("menuBarLabel uses the highest active limit from the live Ultra response")
+    @MainActor
+    func menuBarLabelUltraLimits() async {
+        let (service, _, mockNetwork) = makeService(
+            credentials: TestData.mockCredentials()
+        )
+
+        mockNetwork.enqueue(data: Data(Fixtures.ultraUsageJSON.utf8), statusCode: 200)
+        await service.fetchUsage()
+
+        #expect(service.menuBarLabel == "3%")
     }
 
     @Test("menuBarLabel shows '--%' when API returns 200 but all buckets are null")
@@ -275,7 +288,7 @@ struct UsageServiceFetchTests {
         #expect(service.rateLimitTier == "default_claude_max_20x")
     }
 
-    @Test("planBadge returns 'Max 20x' for max20x credentials")
+    @Test("planBadge returns 'Ultra' for max20x credentials")
     @MainActor
     func planBadgeMax20x() async {
         let (service, _, mockNetwork) = makeService(
@@ -288,7 +301,7 @@ struct UsageServiceFetchTests {
 
         await service.fetchUsage()
 
-        #expect(service.planBadge == "Max 20x")
+        #expect(service.planBadge == "Ultra")
     }
 
     @Test("planBadge returns 'Max' for base max credentials")
@@ -767,7 +780,7 @@ struct UsageServiceFetchTests {
     @Test("Updates subscriptionType and rateLimitTier when keychain is re-read after 401")
     @MainActor
     func subscriptionTypeUpdatedOn401KeychainReread() async {
-        // Use explicit queue so first read returns Pro, second returns Max 20x
+        // Use explicit queue so first read returns Pro, second returns Ultra (max_20x tier)
         let (service, mockKeychain, mockNetwork) = makeService()
 
         // First keychain read (token init): Pro subscription
@@ -775,7 +788,7 @@ struct UsageServiceFetchTests {
             subscriptionType: "Pro",
             rateLimitTier: "tier_1"
         )))
-        // Second keychain read (401 fallback): Max 20x subscription
+        // Second keychain read (401 fallback): Ultra (max_20x tier) subscription
         mockKeychain.enqueue(.success(TestData.mockCredentials(
             accessToken: "fresh-token",
             subscriptionType: "max",
@@ -793,7 +806,7 @@ struct UsageServiceFetchTests {
 
         #expect(service.subscriptionType == "max")
         #expect(service.rateLimitTier == "default_claude_max_20x")
-        #expect(service.planBadge == "Max 20x")
+        #expect(service.planBadge == "Ultra")
         #expect(service.usage != nil)
     }
 }

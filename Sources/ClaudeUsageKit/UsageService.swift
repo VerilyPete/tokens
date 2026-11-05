@@ -33,16 +33,32 @@ public final class UsageService {
     public var rateLimitTier: String?
 
     /// Display-friendly plan badge derived from subscriptionType and rateLimitTier.
-    /// E.g. "Pro", "Max", "Max 20x".
+    /// E.g. "Pro", "Max", "Ultra".
     public var planBadge: String? {
         formatPlanBadge(subscriptionType: subscriptionType, rateLimitTier: rateLimitTier)
+    }
+
+    /// Which row drives the menu bar label. Persisted; a pin is kept even while its row is missing.
+    public var headlineChoice: HeadlineChoice {
+        didSet { headlineStore.save(headlineChoice) }
+    }
+
+    /// Display rows for the current usage (empty when there is none).
+    public var rows: [UsageRow] {
+        usage.map(usageRows) ?? []
+    }
+
+    /// True when the user pinned a row that the latest response doesn't contain.
+    public var isPinnedRowUnavailable: Bool {
+        guard case .pinned(let id) = headlineChoice, usage != nil else { return false }
+        return !rows.contains { $0.id == id }
     }
 
     /// Menu bar label — computed from current state.
     /// Uses `hasAnyUsageData` so we don't imply data is present when all buckets are null.
     public var menuBarLabel: String {
         formatMenuBarLabel(
-            utilization: usage?.fiveHour?.utilization,
+            utilization: selectHeadline(from: rows, choice: headlineChoice)?.percent,
             hasError: error != nil,
             hasData: usage?.hasAnyUsageData ?? false
         )
@@ -63,6 +79,7 @@ public final class UsageService {
 
     private let keychainReader: any KeychainReading
     private let networkSession: any NetworkSession
+    private let headlineStore: any HeadlinePreferenceStore
     /// User-Agent header value. Internal for test verification.
     var userAgent: String = "claude-code/0.0.0"
     /// Base delay for transient error retries (seconds). Set to 0 in tests.
@@ -77,6 +94,7 @@ public final class UsageService {
         self.init(
             keychainReader: KeychainReader(),
             networkSession: URLSession.shared,
+            headlineStore: UserDefaultsHeadlinePreferenceStore(),
             startPollingOnInit: true
         )
     }
@@ -86,10 +104,13 @@ public final class UsageService {
     public init(
         keychainReader: any KeychainReading,
         networkSession: any NetworkSession,
+        headlineStore: any HeadlinePreferenceStore = InMemoryHeadlinePreferenceStore(),
         startPollingOnInit: Bool = false
     ) {
         self.keychainReader = keychainReader
         self.networkSession = networkSession
+        self.headlineStore = headlineStore
+        self.headlineChoice = headlineStore.load()
         if startPollingOnInit {
             startPolling()
         }

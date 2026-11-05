@@ -20,12 +20,17 @@ private struct NoOpNetwork: NetworkSession {
 
 @MainActor private func makePreviewService() -> UsageService {
     let service = UsageService(keychainReader: NoOpKeychain(), networkSession: NoOpNetwork())
+    let weeklyReset = Date().addingTimeInterval(3 * 86400 + 7 * 3600)
     service.usage = UsageResponse(
-        fiveHour: UsageBucket(utilization: 73, resetsAt: Date().addingTimeInterval(2 * 3600 + 14 * 60)),
-        sevenDay: UsageBucket(utilization: 45, resetsAt: Date().addingTimeInterval(3 * 86400 + 7 * 3600)),
-        sevenDayOpus: UsageBucket(utilization: 91, resetsAt: Date().addingTimeInterval(1 * 86400 + 18 * 3600)),
-        sevenDaySonnet: UsageBucket(utilization: 38, resetsAt: Date().addingTimeInterval(3 * 86400 + 7 * 3600)),
-        extraUsage: ExtraUsage(isEnabled: true, monthlyLimit: 10000, usedCredits: 347)
+        sevenDay: UsageBucket(utilization: 45, resetsAt: weeklyReset),
+        extraUsage: ExtraUsage(isEnabled: true, monthlyLimit: 10000, usedCredits: 347),
+        limits: [
+            UsageLimit(kind: "weekly_all", group: "weekly", percent: 45, resetsAt: weeklyReset),
+            UsageLimit(
+                kind: "weekly_scoped", group: "weekly", percent: 91, resetsAt: weeklyReset,
+                scope: LimitScope(modelDisplayName: "Fable")
+            ),
+        ]
     )
     service.subscriptionType = "max"
     service.rateLimitTier = "default_claude_max_20x"
@@ -186,40 +191,21 @@ struct ContentView: View {
 
     @ViewBuilder
     private func usageContent(_ usage: UsageResponse) -> some View {
-        if let fiveHour = usage.fiveHour {
+        ForEach(service.rows) { row in
             UsageBarView(
-                label: "5-Hour Session",
-                percentage: fiveHour.utilization,
-                resetsAt: fiveHour.resetsAt
+                label: row.label,
+                percentage: row.percent,
+                resetsAt: row.resetsAt
             )
-        }
-
-        if let sevenDay = usage.sevenDay {
-            UsageBarView(
-                label: "7-Day Weekly",
-                percentage: sevenDay.utilization,
-                resetsAt: sevenDay.resetsAt
-            )
-        }
-
-        if let sonnet = usage.sevenDaySonnet {
-            UsageBarView(
-                label: "Sonnet (7-Day)",
-                percentage: sonnet.utilization,
-                resetsAt: sonnet.resetsAt
-            )
-        }
-
-        if let opus = usage.sevenDayOpus {
-            UsageBarView(
-                label: "Opus (7-Day)",
-                percentage: opus.utilization,
-                resetsAt: opus.resetsAt
-            )
+            .opacity(row.isActive ? 1 : 0.6)
         }
 
         if let extra = usage.extraUsage, extra.isEnabled {
             extraUsageSection(extra)
+        }
+
+        if service.rows.count > 1 || service.headlineChoice != .auto {
+            headlinePicker
         }
 
         if !usage.hasAnyUsageData, service.error == nil {
@@ -233,6 +219,25 @@ struct ContentView: View {
         if let error = service.error {
             errorBanner(error)
         }
+    }
+
+    // MARK: - Menu Bar Headline Picker
+
+    private var headlinePicker: some View {
+        Picker("Menu bar shows", selection: Binding(
+            get: { service.headlineChoice },
+            set: { service.headlineChoice = $0 }
+        )) {
+            Text("Highest active (auto)").tag(HeadlineChoice.auto)
+            ForEach(service.rows) { row in
+                Text(row.label).tag(HeadlineChoice.pinned(row.id))
+            }
+            if service.isPinnedRowUnavailable, case .pinned(let id) = service.headlineChoice {
+                Text("Pinned limit (unavailable)").tag(HeadlineChoice.pinned(id))
+            }
+        }
+        .pickerStyle(.menu)
+        .font(.callout)
     }
 
     // MARK: - Extra Usage

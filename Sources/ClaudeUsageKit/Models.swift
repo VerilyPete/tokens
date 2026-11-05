@@ -47,12 +47,12 @@ public struct UsageResponse: Sendable, Equatable {
     public let sevenDayOpus: UsageBucket?
     public let sevenDaySonnet: UsageBucket?
     public let extraUsage: ExtraUsage?
+    public let limits: [UsageLimit]
 
     /// Whether this response contains any renderable usage data.
-    /// False when the API returns 200 but all buckets are null/missing.
+    /// False when the API returns 200 but all buckets and limits are null/missing.
     public var hasAnyUsageData: Bool {
-        fiveHour != nil || sevenDay != nil || sevenDayOpus != nil
-            || sevenDaySonnet != nil || (extraUsage?.isEnabled == true)
+        !usageRows(for: self).isEmpty || (extraUsage?.isEnabled == true)
     }
 
     public init(
@@ -60,13 +60,15 @@ public struct UsageResponse: Sendable, Equatable {
         sevenDay: UsageBucket? = nil,
         sevenDayOpus: UsageBucket? = nil,
         sevenDaySonnet: UsageBucket? = nil,
-        extraUsage: ExtraUsage? = nil
+        extraUsage: ExtraUsage? = nil,
+        limits: [UsageLimit] = []
     ) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDayOpus = sevenDayOpus
         self.sevenDaySonnet = sevenDaySonnet
         self.extraUsage = extraUsage
+        self.limits = limits
     }
 }
 
@@ -77,6 +79,7 @@ extension UsageResponse: Decodable {
         case sevenDayOpus = "seven_day_opus"
         case sevenDaySonnet = "seven_day_sonnet"
         case extraUsage = "extra_usage"
+        case limits
     }
 
     public init(from decoder: Decoder) throws {
@@ -86,6 +89,145 @@ extension UsageResponse: Decodable {
         sevenDayOpus = try container.decodeIfPresent(UsageBucket.self, forKey: .sevenDayOpus)
         sevenDaySonnet = try container.decodeIfPresent(UsageBucket.self, forKey: .sevenDaySonnet)
         extraUsage = try container.decodeIfPresent(ExtraUsage.self, forKey: .extraUsage)
+        limits = (try? container.decodeIfPresent(LossyArray<UsageLimit>.self, forKey: .limits))?.elements ?? []
+    }
+}
+
+// MARK: - Limits
+
+/// What a scoped limit applies to (a model, a surface, or both).
+public struct LimitScope: Sendable, Equatable {
+    public let modelId: String?
+    public let modelDisplayName: String?
+    public let surface: String?
+
+    public init(modelId: String? = nil, modelDisplayName: String? = nil, surface: String? = nil) {
+        self.modelId = modelId
+        self.modelDisplayName = modelDisplayName
+        self.surface = surface
+    }
+}
+
+/// One entry of the API's self-describing `limits` array.
+public struct UsageLimit: Sendable, Equatable {
+    public let kind: String
+    public let group: String?
+    public let percent: Double
+    public let severity: String?
+    public let resetsAt: Date?
+    public let scope: LimitScope?
+    public let isActive: Bool
+
+    public var modelDisplayName: String? { scope?.modelDisplayName }
+
+    public init(
+        kind: String,
+        group: String? = nil,
+        percent: Double,
+        severity: String? = nil,
+        resetsAt: Date? = nil,
+        scope: LimitScope? = nil,
+        isActive: Bool = true
+    ) {
+        self.kind = kind
+        self.group = group
+        self.percent = clampUtilization(percent)
+        self.severity = severity
+        self.resetsAt = resetsAt
+        self.scope = scope
+        self.isActive = isActive
+    }
+}
+
+extension UsageLimit: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case kind, group, percent, severity, scope
+        case resetsAt = "resets_at"
+        case isActive = "is_active"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            kind: try container.decode(String.self, forKey: .kind),
+            group: try? container.decodeIfPresent(String.self, forKey: .group),
+            percent: try container.decode(Double.self, forKey: .percent),
+            severity: try? container.decodeIfPresent(String.self, forKey: .severity),
+            resetsAt: (try? container.decodeIfPresent(String.self, forKey: .resetsAt)).flatMap(Date.fromAPI),
+            scope: try container.decodeIfPresent(LimitScope.self, forKey: .scope),
+            isActive: (try? container.decodeIfPresent(Bool.self, forKey: .isActive)) ?? true
+        )
+    }
+}
+
+extension LimitScope: Decodable {
+    private enum CodingKeys: String, CodingKey { case model, surface }
+
+    /// A `{id, display_name}` object. Throws unless at least one field is a non-empty string,
+    /// so an identity-less object can't masquerade as "no restriction".
+    private struct Named: Decodable {
+        let id: String?
+        let displayName: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case displayName = "display_name"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decodeIfPresent(String.self, forKey: .id).flatMap { $0.isEmpty ? nil : $0 }
+            displayName = try container.decodeIfPresent(String.self, forKey: .displayName).flatMap { $0.isEmpty ? nil : $0 }
+            guard id != nil || displayName != nil else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Scope object has no id or display_name")
+                )
+            }
+        }
+    }
+
+    /// Strict: a scope that is present but malformed throws, so the whole limit entry is
+    /// dropped rather than silently treated as unrestricted.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let model = try container.decodeIfPresent(Named.self, forKey: .model)
+        self.init(
+            modelId: model?.id,
+            modelDisplayName: model?.displayName,
+            surface: try Self.decodeSurface(from: container)
+        )
+    }
+
+    /// Surface may be absent/null, a string, or a `{id, display_name}` object.
+    private static func decodeSurface(from container: KeyedDecodingContainer<CodingKeys>) throws -> String? {
+        guard container.contains(.surface), try !container.decodeNil(forKey: .surface) else { return nil }
+        if let string = try? container.decode(String.self, forKey: .surface) {
+            return string
+        }
+        let named = try container.decode(Named.self, forKey: .surface)
+        return named.displayName ?? named.id
+    }
+}
+
+/// Decodes an array element by element, dropping elements that fail to decode.
+struct LossyArray<Element: Decodable>: Decodable {
+    let elements: [Element]
+
+    private struct Skip: Decodable {
+        init(from decoder: Decoder) throws {}
+    }
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var decoded: [Element] = []
+        while !container.isAtEnd {
+            if let element = try? container.decode(Element.self) {
+                decoded.append(element)
+            } else {
+                _ = try container.decode(Skip.self)
+            }
+        }
+        elements = decoded
     }
 }
 
