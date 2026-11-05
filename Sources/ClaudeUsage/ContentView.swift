@@ -1,5 +1,4 @@
 import SwiftUI
-import ServiceManagement
 import ClaudeUsageKit
 
 /// The main popover content shown when the menu bar icon is clicked.
@@ -38,8 +37,17 @@ private struct NoOpNetwork: NetworkSession {
     return service
 }
 
+private final class PreviewLoginItem: LoginItemManaging {
+    var isEnabled = true
+    func register() throws { isEnabled = true }
+    func unregister() throws { isEnabled = false }
+}
+
 #Preview {
-    ContentView(service: makePreviewService())
+    ContentView(
+        service: makePreviewService(),
+        loginItem: LoginItemController(manager: PreviewLoginItem())
+    )
 }
 #endif
 
@@ -47,8 +55,7 @@ private struct NoOpNetwork: NetworkSession {
 
 struct ContentView: View {
     let service: UsageService
-
-    @State private var loginItemError: String?
+    let loginItem: LoginItemController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -68,13 +75,17 @@ struct ContentView: View {
         }
         .padding()
         .frame(width: 300)
+        .onAppear { loginItem.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            loginItem.refresh()
+        }
         .alert("Launch at Login", isPresented: Binding(
-            get: { loginItemError != nil },
-            set: { if !$0 { loginItemError = nil } }
+            get: { loginItem.lastError != nil },
+            set: { if !$0 { loginItem.clearError() } }
         )) {
-            Button("OK") { loginItemError = nil }
+            Button("OK") { loginItem.clearError() }
         } message: {
-            Text(loginItemError ?? "")
+            Text(loginItem.lastError ?? "")
         }
     }
 
@@ -323,18 +334,8 @@ struct ContentView: View {
             }
 
             Toggle("Launch at Login", isOn: Binding(
-                get: { SMAppService.mainApp.status == .enabled },
-                set: { newValue in
-                    do {
-                        if newValue {
-                            try SMAppService.mainApp.register()
-                        } else {
-                            try SMAppService.mainApp.unregister()
-                        }
-                    } catch {
-                        loginItemError = error.localizedDescription
-                    }
-                }
+                get: { loginItem.isEnabled },
+                set: { loginItem.setEnabled($0) }
             ))
             .toggleStyle(.checkbox)
             .font(.caption)

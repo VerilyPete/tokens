@@ -6,7 +6,7 @@ Finally, you can close the browser tab you keep pinned to claude.ai/settings/usa
 
 Claude Usage sits in your menu bar and polls the Claude API every five minutes, showing your highest active limit as a simple percentage (or any limit you pin using the "Menu bar shows" picker in the popover). Click it to see the full breakdown: every limit your plan has (5-hour rolling, 7-day weekly, per-model limits, and the separate weekly Fable limit on Ultra), plus extra usage credits if you have them enabled. The bars change color as you approach your limits (green, yellow, orange, red) so you can tell at a glance whether it's a good time to kick off that big refactor or grab an early lunch while the window resets.
 
-![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![Tests](https://img.shields.io/badge/tests-205-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![Tests](https://img.shields.io/badge/tests-212-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 <img src="assets/menubar.png" alt="Claude Usage showing 21% in the macOS menu bar" width="300">
 
@@ -61,7 +61,7 @@ For development, `swift build` gives you a quick debug build and `swift run` run
 ## Running the tests
 
 ```bash
-swift test                           # all 205 tests
+swift test                           # all 212 tests
 swift test --filter FormattingTests  # one suite
 swift test --filter testFetchSuccess # one test
 ```
@@ -76,7 +76,7 @@ The codebase is about 1,400 lines of Swift split into three targets.
 
 **ClaudeUsage** is a thin SwiftUI shell. The `@main` entry point with a `MenuBarExtra`, a `ContentView` popover with usage bars, error states, and the login toggle, and a reusable `UsageBarView`.
 
-**ClaudeUsageTests** has 205 tests using Swift Testing (`@Suite`, `@Test`). Mocks use FIFO queues for deterministic response sequencing, including a `HoldingNetworkSession` that suspends at the network boundary for testing concurrent fetch guards.
+**ClaudeUsageTests** has 212 tests using Swift Testing (`@Suite`, `@Test`). Mocks use FIFO queues for deterministic response sequencing, including a `HoldingNetworkSession` that suspends at the network boundary for testing concurrent fetch guards.
 
 ## CI/CD
 

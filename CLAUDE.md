@@ -10,7 +10,7 @@ Claude Usage is a native macOS menu bar app that displays Claude Pro, Max, or Ul
 
 ```bash
 swift build                              # Debug build
-swift test                               # All 205 tests
+swift test                               # All 212 tests
 swift test --filter FormattingTests      # Run one test suite
 swift test --filter testFetchSuccess     # Run single test
 ./build.sh                               # Release build + .app bundle (ad-hoc codesigned)
@@ -29,11 +29,13 @@ swift test --filter testFetchSuccess     # Run single test
 - **Formatting.swift** — Pure functions for color thresholds (`UsageLevel`: green/yellow/orange/red at 50/80/90%), time formatting, menu bar labels (input is the selected headline row; "37%", "85%!", "95%!!", "--%", "!!"), and credits formatting. Plan badge shows "Ultra" for the `max_20x` tier.
 - **UsageRows.swift** — `usageRows(for:)` builds normalised display rows from `limits`, merging legacy buckets (five_hour/seven_day/opus/sonnet) unless an equivalent modern limit exists; `selectHeadline(from:choice:)` picks the menu bar row (highest active by default, or the pinned one).
 - **HeadlineChoice.swift** — `HeadlineChoice` (auto or pinned limit), `HeadlinePreferenceStore` protocol, `UserDefaultsHeadlinePreferenceStore` (persisted) and `InMemoryHeadlinePreferenceStore` (tests).
+- **LoginItemController.swift** — `@MainActor @Observable` state for the Launch at Login toggle behind a `LoginItemManaging` protocol. `SMAppService.status` isn't observable, so the controller mirrors it and re-reads it after each change and on popover open; failures surface as `lastError`.
 
 ### ClaudeUsage (Sources/ClaudeUsage/) — UI shell
 
 - **ClaudeUsageApp.swift** — `@main`, `MenuBarExtra` with `.window` style. Polling starts in `UsageService.init()` (not `.onAppear`, since MenuBarExtra fires it lazily).
 - **ContentView.swift** — Popover with usage bars, error-specific help (setup guide for missing credentials, keychain access help), graceful fallback to cached data on transient errors, Launch at Login toggle via `SMAppService`.
+- **SMAppServiceLoginItem.swift** — Production `LoginItemManaging` adapter over `SMAppService.mainApp`.
 - **UsageBarView.swift** — Reusable color-coded progress bar.
 
 ### Tests (Tests/ClaudeUsageTests/)
