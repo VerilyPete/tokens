@@ -200,10 +200,10 @@ struct MenuBarLabelTests {
 @Suite("formatPlanBadge")
 struct PlanBadgeTests {
 
-    @Test("Returns 'Max 20x' for default_claude_max_20x tier")
+    @Test("Returns 'Ultra' for default_claude_max_20x tier")
     func max20xTier() {
         let result = formatPlanBadge(subscriptionType: "max", rateLimitTier: "default_claude_max_20x")
-        #expect(result == "Max 20x")
+        #expect(result == "Ultra")
     }
 
     @Test("Returns 'Max' for default_claude_max_5x tier (base Max)")

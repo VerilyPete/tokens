@@ -1,12 +1,12 @@
 # Claude Usage
 
-A macOS menu bar app that shows your Claude Pro/Max subscription usage at a glance.
+A macOS menu bar app that shows your Claude Pro, Max, or Ultra subscription usage at a glance.
 
 Finally, you can close the browser tab you keep pinned to claude.ai/settings/usage!
 
-Claude Usage sits in your menu bar and polls the Claude API every five minutes, showing your current 5-hour utilization as a simple percentage. Click it to see the full breakdown: 5-hour rolling, 7-day weekly, per-model Sonnet/Opus limits, and extra usage credits if you have them enabled. The bars change color as you approach your limits (green, yellow, orange, red) so you can tell at a glance whether it's a good time to kick off that big refactor or grab an early lunch while the window resets.
+Claude Usage sits in your menu bar and polls the Claude API every five minutes, showing your highest active limit as a simple percentage (or any limit you pin using the "Menu bar shows" picker in the popover). Click it to see the full breakdown: every limit your plan has (5-hour rolling, 7-day weekly, per-model limits, and the separate weekly Fable limit on Ultra), plus extra usage credits if you have them enabled. The bars change color as you approach your limits (green, yellow, orange, red) so you can tell at a glance whether it's a good time to kick off that big refactor or grab an early lunch while the window resets.
 
-![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![Tests](https://img.shields.io/badge/tests-132-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![Tests](https://img.shields.io/badge/tests-205-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 <img src="assets/menubar.png" alt="Claude Usage showing 21% in the macOS menu bar" width="300">
 
@@ -16,9 +16,9 @@ Most of the time, Claude Usage is just a quiet percentage in your menu bar. Clic
 
 ## How it works
 
-The app reads your Claude Code OAuth credentials from the macOS keychain (read-only, it never writes to the keychain) and uses them to hit the same usage API that Claude Code itself uses. Your subscription tier (Pro, Max, Max 20x, etc.) is picked up from the keychain automatically and shown as a badge in the popover. It handles token refresh automatically, retries with exponential backoff on transient failures, and detects sleep/wake so it doesn't spam errors when your laptop wakes up without a network connection.
+The app reads your Claude Code OAuth credentials from the macOS keychain (read-only, it never writes to the keychain) and uses them to hit the same usage API that Claude Code itself uses. Your subscription tier (Pro, Max, Ultra, etc.) is picked up from the keychain automatically and shown as a badge in the popover. It handles token refresh automatically, retries with exponential backoff on transient failures, and detects sleep/wake so it doesn't spam errors when your laptop wakes up without a network connection.
 
-The menu bar label gives you a quick read:
+By default the menu bar label tracks the highest active limit ("Highest active (auto)"); pick a specific limit in the popover to pin it instead, and the choice is remembered across launches. The label gives you a quick read:
 
 | Label | Meaning |
 |-------|---------|
@@ -61,7 +61,7 @@ For development, `swift build` gives you a quick debug build and `swift run` run
 ## Running the tests
 
 ```bash
-swift test                           # all 132 tests
+swift test                           # all 205 tests
 swift test --filter FormattingTests  # one suite
 swift test --filter testFetchSuccess # one test
 ```
@@ -72,11 +72,11 @@ The full suite runs in under a second. All testable logic lives in a library tar
 
 The codebase is about 1,400 lines of Swift split into three targets.
 
-**ClaudeUsageKit** is the library where all the logic lives. Models, keychain reading, API calls, polling, token refresh, formatting. Everything here is testable in isolation through two protocols (`KeychainReading` and `NetworkSession`). Swift 6 structured concurrency throughout, no Timer or Combine.
+**ClaudeUsageKit** is the library where all the logic lives. Models, keychain reading, API calls, polling, token refresh, formatting. Everything here is testable in isolation through three injected protocols (`KeychainReading`, `NetworkSession`, and `HeadlinePreferenceStore` for the persisted menu bar choice). Swift 6 structured concurrency throughout, no Timer or Combine.
 
 **ClaudeUsage** is a thin SwiftUI shell. The `@main` entry point with a `MenuBarExtra`, a `ContentView` popover with usage bars, error states, and the login toggle, and a reusable `UsageBarView`.
 
-**ClaudeUsageTests** has 132 tests using Swift Testing (`@Suite`, `@Test`). Mocks use FIFO queues for deterministic response sequencing, including a `HoldingNetworkSession` that suspends at the network boundary for testing concurrent fetch guards.
+**ClaudeUsageTests** has 205 tests using Swift Testing (`@Suite`, `@Test`). Mocks use FIFO queues for deterministic response sequencing, including a `HoldingNetworkSession` that suspends at the network boundary for testing concurrent fetch guards.
 
 ## CI/CD
 

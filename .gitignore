@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# build.sh output
+ClaudeUsage.app/
+
+# Claude Code agent worktrees
+.claude/worktrees/
