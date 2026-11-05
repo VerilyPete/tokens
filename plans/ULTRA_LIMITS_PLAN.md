@@ -102,4 +102,4 @@ After the release: confirm which copy is running (`ps` / `sfltool dumpbtm`), ins
 
 ## Implementation log
 
-- 2026-11-05: Slices 1–6 implemented on branch `ultra-limits` (uncommitted). Codex code review: round 1 had 4 blocking findings (strict scope decoding, exact model-family match, picker visible while a pin is set, id tie-break; a claimed compile bug was a false positive but got simplified), round 2 had 1 blocking finding (identity-less scope objects) plus 2 doc nits, and round 3 was clean. Mutation testing: 64 mutants, 50 killed; tests added for all 13 non-equivalent survivors, re-verified. 205 tests pass.
+- 2026-11-05: Slices 1–6 implemented in commit 834e475 (PR #32). Codex code review: round 1 had 4 blocking findings (strict scope decoding, exact model-family match, picker visible while a pin is set, id tie-break; a claimed compile bug was a false positive but got simplified), round 2 had 1 blocking finding (identity-less scope objects) plus 2 doc nits, and round 3 was clean. Mutation testing: 64 mutants, 50 killed; tests added for all 13 non-equivalent survivors, re-verified. 205 tests pass.
